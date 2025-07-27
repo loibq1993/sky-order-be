@@ -10,7 +10,7 @@ export interface Category {
     updatedAt: Date;
 }
 
-export interface MenuItem {
+export interface Product {
     id: string;
     name: string;
     nameKo?: string;
@@ -25,8 +25,7 @@ export interface MenuItem {
     categoryKo?: string;
     available: boolean;
     sales: number;
-    statusKey: string;
-    count: number;
+    visible: boolean;
     createdAt: Date;
     updatedAt: Date;
 } 

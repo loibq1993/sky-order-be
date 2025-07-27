@@ -1,0 +1,46 @@
+import {
+    Controller,
+    Get,
+    Param,
+    UseInterceptors,
+    ClassSerializerInterceptor
+} from '@nestjs/common';
+import {
+    ApiTags,
+    ApiOperation,
+    ApiResponse,
+    ApiParam
+} from '@nestjs/swagger';
+import { CategoriesService } from './categories.service';
+import { CategoryResponseDto } from './categories.dto';
+
+@ApiTags('categories-client')
+@Controller('categories')
+@UseInterceptors(ClassSerializerInterceptor)
+export class ClientCategoriesController {
+    constructor(private readonly categoriesService: CategoriesService) { }
+
+    @Get()
+    @ApiOperation({ summary: 'Get all active categories (Client)' })
+    @ApiResponse({
+        status: 200,
+        description: 'Categories retrieved successfully',
+        type: [CategoryResponseDto]
+    })
+    async findAll(): Promise<CategoryResponseDto[]> {
+        return this.categoriesService.findAll();
+    }
+
+    @Get('with-count')
+    @ApiOperation({ summary: 'Get all categories with menu count (Client)' })
+    async findAllWithMenuCount(): Promise<(CategoryResponseDto & { menuCount: number })[]> {
+        return this.categoriesService.findWithMenuCount();
+    }
+
+    @Get(':id')
+    @ApiOperation({ summary: 'Get category by ID (Client)' })
+    @ApiParam({ name: 'id', description: 'Category ID' })
+    async findOne(@Param('id') id: string): Promise<CategoryResponseDto> {
+        return this.categoriesService.findOne(id);
+    }
+} 
