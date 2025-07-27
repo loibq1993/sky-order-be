@@ -1,5 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
 import { Product } from './product.entity';
+import { Table } from './table.entity';
 
 @Entity('orders')
 export class Order {
@@ -33,11 +34,17 @@ export class Order {
     @Column({ type: 'decimal', precision: 10, scale: 2 })
     total: number;
 
-    @Column({ type: 'enum', enum: ['pending', 'confirmed', 'preparing', 'ready', 'delivered', 'cancelled'], default: 'pending' })
+    @Column({ type: 'enum', enum: ['pending', 'confirmed', 'preparing', 'ready', 'served', 'delivered', 'completed', 'cancelled'], default: 'pending' })
     status: string;
 
     @Column({ type: 'enum', enum: ['dine_in', 'takeaway', 'delivery'], default: 'dine_in' })
     orderType: string;
+
+    @Column({ type: 'uuid', nullable: true })
+    tableId: string | null;
+
+    @Column({ type: 'int', nullable: true })
+    tableNumber: number | null;
 
     @Column({ type: 'timestamp', nullable: true })
     estimatedDeliveryTime: Date | null;
@@ -57,6 +64,10 @@ export class Order {
     // Relations
     @OneToMany(() => OrderItem, orderItem => orderItem.order)
     orderItems: OrderItem[];
+
+    @ManyToOne(() => Table, { nullable: true })
+    @JoinColumn({ name: 'tableId' })
+    table: Table;
 }
 
 @Entity('order_items')

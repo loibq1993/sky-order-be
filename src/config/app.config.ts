@@ -56,4 +56,8 @@ export class AppConfig {
             uploadPath: this.configService.get<string>('app.fileUpload.uploadPath', './uploads'),
         };
     }
+
+    get backendUrl(): string {
+        return this.configService.get<string>('app.backendUrl', 'http://localhost:4500');
+    }
 } 

@@ -9,10 +9,12 @@ import { Category } from './entities/category.entity';
 import { Product } from './entities/product.entity';
 import { Order, OrderItem } from './entities/order.entity';
 import { ProductCategory } from './entities/product-category.entity';
+import { Table } from './entities/table.entity';
 import { CategoriesModule } from './categories/categories.module';
 import { ProductsModule } from './products/products.module';
 import { OrdersModule } from './orders/orders.module';
 import { UploadModule } from './upload/upload.module';
+import { TablesModule } from './tables/tables.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -31,7 +33,7 @@ import configuration from './config/configuration';
         username: configService.get<string>('app.database.username'),
         password: configService.get<string>('app.database.password'),
         database: configService.get<string>('app.database.database'),
-        entities: [Category, Product, Order, OrderItem, ProductCategory],
+        entities: [Category, Product, Order, OrderItem, ProductCategory, Table],
         synchronize: false, // Disable synchronize, use migrations instead
         migrations: [__dirname + '/migrations/*.ts'],
         migrationsTableName: 'migrations',
@@ -48,6 +50,7 @@ import configuration from './config/configuration';
     ProductsModule,
     OrdersModule,
     UploadModule,
+    TablesModule,
   ],
   controllers: [
     AppController,

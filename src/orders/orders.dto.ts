@@ -13,7 +13,9 @@ export enum OrderStatus {
     CONFIRMED = 'confirmed',
     PREPARING = 'preparing',
     READY = 'ready',
+    SERVED = 'served',
     DELIVERED = 'delivered',
+    COMPLETED = 'completed',
     CANCELLED = 'cancelled'
 }
 
@@ -70,6 +72,23 @@ export class CreateOrderDto {
     orderType: OrderType;
 
     @ApiPropertyOptional({
+        description: 'Table ID (for dine-in orders)',
+        example: '123e4567-e89b-12d3-a456-426614174000'
+    })
+    @IsOptional()
+    @IsUUID()
+    tableId?: string;
+
+    @ApiPropertyOptional({
+        description: 'Table number (for dine-in orders)',
+        example: 1
+    })
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    tableNumber?: number;
+
+    @ApiPropertyOptional({
         description: 'Customer name',
         example: 'John Doe'
     })
@@ -123,6 +142,16 @@ export class UpdateOrderDto {
     @IsOptional()
     @IsEnum(OrderStatus)
     status?: OrderStatus;
+
+    @ApiPropertyOptional({
+        description: 'Additional items to add to order',
+        type: [OrderItemDto]
+    })
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => OrderItemDto)
+    additionalItems?: OrderItemDto[];
 
     @ApiPropertyOptional({
         description: 'Customer name',
@@ -267,6 +296,18 @@ export class OrderResponseDto {
     })
     orderType: OrderType;
 
+    @ApiPropertyOptional({
+        description: 'Table ID (for dine-in orders)',
+        example: '123e4567-e89b-12d3-a456-426614174000'
+    })
+    tableId?: string;
+
+    @ApiPropertyOptional({
+        description: 'Table number (for dine-in orders)',
+        example: 1
+    })
+    tableNumber?: number;
+
     @ApiProperty({
         description: 'Order items',
         type: [OrderItemResponseDto]
@@ -332,4 +373,74 @@ export class OrderResponseDto {
         example: '2023-01-01T00:00:00.000Z'
     })
     updatedAt: Date;
+}
+
+export class UpdateOrderStatusDto {
+    @ApiProperty({
+        description: 'Order status',
+        enum: OrderStatus,
+        example: OrderStatus.CONFIRMED
+    })
+    @IsEnum(OrderStatus)
+    status: OrderStatus;
+}
+
+export class DateRangeDto {
+    @ApiProperty({
+        description: 'Start date',
+        example: '2023-01-01T00:00:00.000Z'
+    })
+    @IsNotEmpty()
+    startDate: Date;
+
+    @ApiProperty({
+        description: 'End date',
+        example: '2023-12-31T23:59:59.999Z'
+    })
+    @IsNotEmpty()
+    endDate: Date;
+}
+
+export class CustomerSearchDto {
+    @ApiProperty({
+        description: 'Customer name to search for',
+        example: 'John Doe'
+    })
+    @IsString()
+    @IsNotEmpty()
+    customerName: string;
+}
+
+export class CustomerPhoneSearchDto {
+    @ApiProperty({
+        description: 'Customer phone number to search for',
+        example: '+1234567890'
+    })
+    @IsString()
+    @IsNotEmpty()
+    customerPhone: string;
+}
+
+export class MultipleStatusFilterDto {
+    @ApiProperty({
+        description: 'Array of order statuses to filter by',
+        enum: OrderStatus,
+        isArray: true,
+        example: [OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PREPARING]
+    })
+    @IsArray()
+    @IsEnum(OrderStatus, { each: true })
+    statuses: OrderStatus[];
+}
+
+export class ExcludeStatusFilterDto {
+    @ApiProperty({
+        description: 'Array of order statuses to exclude from results',
+        enum: OrderStatus,
+        isArray: true,
+        example: [OrderStatus.COMPLETED, OrderStatus.CANCELLED]
+    })
+    @IsArray()
+    @IsEnum(OrderStatus, { each: true })
+    excludedStatuses: OrderStatus[];
 } 

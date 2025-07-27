@@ -4,6 +4,7 @@ import {
     Post,
     Body,
     Param,
+    Patch,
     UseInterceptors,
     ClassSerializerInterceptor,
     HttpCode,
@@ -17,7 +18,7 @@ import {
     ApiBody
 } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
-import { CreateOrderDto, OrderResponseDto } from './orders.dto';
+import { CreateOrderDto, UpdateOrderDto, OrderResponseDto } from './orders.dto';
 
 @ApiTags('orders-client')
 @Controller('orders')
@@ -51,5 +52,15 @@ export class ClientOrdersController {
     @ApiResponse({ status: 404, description: 'Order not found' })
     async findOne(@Param('id') id: string): Promise<OrderResponseDto> {
         return this.ordersService.findOne(id);
+    }
+
+    @Patch(':id')
+    @ApiOperation({ summary: 'Add items to order (Client)' })
+    @ApiParam({ name: 'id', description: 'Order ID' })
+    @ApiBody({ type: UpdateOrderDto })
+    @ApiResponse({ status: 200, description: 'Order updated successfully', type: OrderResponseDto })
+    @ApiResponse({ status: 404, description: 'Order not found' })
+    async updateOrder(@Param('id') id: string, @Body() updateOrderDto: UpdateOrderDto): Promise<OrderResponseDto> {
+        return this.ordersService.updateOrder(id, updateOrderDto);
     }
 } 
