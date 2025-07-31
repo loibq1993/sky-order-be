@@ -105,6 +105,14 @@ export class AdminProductsController {
         return this.productsService.getPopularForAdmin(limitNumber);
     }
 
+    @Get('count/active')
+    @ApiOperation({ summary: 'Get count of active products' })
+    @ApiResponse({ status: 200, description: 'Returns count of active products' })
+    async getActiveProductsCount() {
+        const count = await this.productsService.getActiveProductsCount();
+        return { count };
+    }
+
     @Get(':id')
     @ApiOperation({ summary: 'Get product by ID (Admin)' })
     @ApiParam({ name: 'id', description: 'Product ID' })

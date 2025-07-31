@@ -357,6 +357,12 @@ export class ProductResponseDto {
     })
     sales: number;
 
+    @ApiPropertyOptional({
+        description: 'Number of orders containing this product',
+        example: 25
+    })
+    orderCount?: number;
+
     @ApiProperty({
         description: 'Creation timestamp',
         example: '2023-01-01T00:00:00.000Z'

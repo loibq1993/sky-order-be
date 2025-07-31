@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository, IsNull, In } from 'typeorm';
 import { Order, OrderItem } from '../entities/order.entity';
 import { Product } from '../entities/product.entity';
 import { Table } from '../entities/table.entity';
@@ -177,6 +177,13 @@ export class OrdersService {
         if (updateOrderDto.additionalItems && updateOrderDto.additionalItems.length > 0) {
             let additionalTotal = 0;
 
+            // Check if order status allows updates (not cancelled, completed, or delivered)
+            if (order.status === OrderStatus.CANCELLED ||
+                order.status === OrderStatus.COMPLETED ||
+                order.status === OrderStatus.DELIVERED) {
+                throw new BadRequestException(`Cannot add items to order with status: ${order.status}`);
+            }
+
             for (const item of updateOrderDto.additionalItems) {
                 const product = await this.productRepository.findOne({
                     where: { id: item.productId, deletedAt: IsNull(), available: true, visible: true }
@@ -204,6 +211,11 @@ export class OrdersService {
             // Update order totals
             order.subtotal += additionalTotal;
             order.total += additionalTotal;
+
+            // Reset status to PENDING when new items are added (unless already pending)
+            if (order.status !== OrderStatus.PENDING) {
+                order.status = OrderStatus.PENDING;
+            }
         }
 
         // Update other fields - only update specific fields to avoid issues with relations
@@ -231,10 +243,11 @@ export class OrdersService {
             updateData.actualDeliveryTime = updateOrderDto.actualDeliveryTime;
         }
 
-        // Update order totals if additional items were added
+        // Update order totals and status if additional items were added
         if (updateOrderDto.additionalItems && updateOrderDto.additionalItems.length > 0) {
             updateData.subtotal = order.subtotal;
             updateData.total = order.total;
+            updateData.status = order.status; // Include the status change
         }
 
         await this.orderRepository.update(id, updateData);
@@ -410,6 +423,32 @@ export class OrdersService {
         return orders.map(order => this.mapToResponseDto(order));
     }
 
+    async getActiveOrdersCount(): Promise<number> {
+        const count = await this.orderRepository
+            .createQueryBuilder('order')
+            .where('order.status NOT IN (:...excludedStatuses)', {
+                excludedStatuses: [OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.DELIVERED]
+            })
+            .andWhere('order.deletedAt IS NULL')
+            .getCount();
+
+        return count;
+    }
+
+    async getOrdersCountByStatuses(statuses: OrderStatus[]): Promise<number> {
+        const count = await this.orderRepository
+            .createQueryBuilder('order')
+            .where('order.status IN (:...statuses)', { statuses })
+            .andWhere('order.deletedAt IS NULL')
+            .getCount();
+
+        return count;
+    }
+
+    async getPendingOrdersCount(): Promise<number> {
+        return this.getOrdersCountByStatuses([OrderStatus.PENDING]);
+    }
+
     async getOrdersByType(orderType: string): Promise<OrderResponseDto[]> {
         const orders = await this.orderRepository.find({
             where: { orderType: orderType as OrderType },
@@ -434,7 +473,7 @@ export class OrdersService {
         const order = await this.orderRepository.findOne({
             where: {
                 tableId,
-                status: OrderStatus.PENDING || OrderStatus.CONFIRMED || OrderStatus.PREPARING || OrderStatus.READY || OrderStatus.SERVED,
+                status: In([OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.SERVED]),
                 deletedAt: IsNull()
             },
             relations: ['orderItems'],
@@ -494,5 +533,41 @@ export class OrdersService {
             createdAt: order.createdAt,
             updatedAt: order.updatedAt,
         };
+    }
+
+    // Get total number of orders
+    async getTotalOrdersCount(): Promise<number> {
+        return this.orderRepository.count({
+            where: { deletedAt: IsNull() }
+        });
+    }
+
+    // Get today's revenue
+    async getTodayRevenue(): Promise<number> {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const result = await this.orderRepository
+            .createQueryBuilder('order')
+            .select('SUM(order.total)', 'total')
+            .where('order.deletedAt IS NULL')
+            .andWhere('order.status NOT IN (:...excludedStatuses)', {
+                excludedStatuses: [OrderStatus.CANCELLED]
+            })
+            .andWhere('order.createdAt >= :today', { today })
+            .getRawOne();
+
+        return result?.total || 0;
+    }
+
+    // Get recent orders
+    async getRecentOrders(limit: number = 5): Promise<OrderResponseDto[]> {
+        const orders = await this.orderRepository.find({
+            where: { deletedAt: IsNull() },
+            order: { createdAt: 'DESC' },
+            take: limit
+        });
+
+        return orders.map(order => this.mapToResponseDto(order));
     }
 } 

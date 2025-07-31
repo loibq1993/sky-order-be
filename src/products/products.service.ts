@@ -72,7 +72,14 @@ export class ProductsService {
             relations: ['categoryRelation'],
             order: { createdAt: 'ASC' },
         });
-        return products.map(item => this.mapToResponseDto(item));
+
+        // Get order counts for all products
+        const orderCounts = await this.getOrderCountsByProduct();
+
+        // Map products with order counts
+        return products.map(item => {
+            return this.mapToResponseDto(item, orderCounts[item.id] || 0);
+        });
     }
 
     // Get all visible and in-stock products with pagination and category filter
@@ -105,8 +112,11 @@ export class ProductsService {
 
         const totalPages = Math.ceil(total / limit);
 
+        // Get order counts for all products
+        const orderCounts = await this.getOrderCountsByProduct();
+
         return {
-            products: products.map(item => this.mapToResponseDto(item)),
+            products: products.map(item => this.mapToResponseDto(item, orderCounts[item.id] || 0)),
             total,
             page,
             limit,
@@ -137,7 +147,11 @@ export class ProductsService {
             relations: ['categoryRelation'],
             order: { createdAt: 'ASC' },
         });
-        return products.map(item => this.mapToResponseDto(item));
+
+        // Get order counts for products in this category
+        const orderCounts = await this.getOrderCountsByProduct();
+
+        return products.map(item => this.mapToResponseDto(item, orderCounts[item.id] || 0));
     }
 
     // Get products by category for admin (including hidden and unavailable)
@@ -309,7 +323,10 @@ export class ProductsService {
             .orderBy('product.createdAt', 'ASC')
             .getMany();
 
-        return products.map(item => this.mapToResponseDto(item));
+        // Get order counts for searched products
+        const orderCounts = await this.getOrderCountsByProduct();
+
+        return products.map(item => this.mapToResponseDto(item, orderCounts[item.id] || 0));
     }
 
     // Search products for admin (including hidden and unavailable)
@@ -340,7 +357,11 @@ export class ProductsService {
             order: { sales: 'DESC', createdAt: 'ASC' },
             take: limit,
         });
-        return products.map(item => this.mapToResponseDto(item));
+
+        // Get order counts for popular products
+        const orderCounts = await this.getOrderCountsByProduct();
+
+        return products.map(item => this.mapToResponseDto(item, orderCounts[item.id] || 0));
     }
 
     // Get popular products for admin (including hidden and unavailable)
@@ -397,6 +418,47 @@ export class ProductsService {
     }
 
     // Get all products for admin with pagination (including hidden and unavailable)
+    async getOrderCountsByProduct(): Promise<{ [productId: string]: number }> {
+        // First, let's check if there are any order items at all
+        const totalOrderItems = await this.productRepository
+            .createQueryBuilder('product')
+            .leftJoin('order_items', 'oi', 'oi.productId = product.id')
+            .getCount();
+
+        console.log('Total order items in database:', totalOrderItems);
+
+        const result = await this.productRepository
+            .createQueryBuilder('product')
+            .leftJoin('order_items', 'oi', 'oi.productId = product.id')
+            .leftJoin('orders', 'o', 'o.id = oi.orderId')
+            .select('product.id', 'productId')
+            .addSelect('product.name', 'productName')
+            .addSelect('COUNT(DISTINCT o.id)', 'orderCount')
+            .groupBy('product.id')
+            .addGroupBy('product.name')
+            .getRawMany();
+
+        const orderCounts: { [productId: string]: number } = {};
+        result.forEach(item => {
+            orderCounts[item.productId] = parseInt(item.orderCount) || 0;
+            console.log(`Product ${item.productName} (${item.productId}): ${item.orderCount} orders`);
+        });
+
+        console.log('Final order counts by product:', orderCounts);
+        return orderCounts;
+    }
+
+    // Get count of active products
+    async getActiveProductsCount(): Promise<number> {
+        return this.productRepository.count({
+            where: {
+                deletedAt: IsNull(),
+                available: true,
+                visible: true
+            }
+        });
+    }
+
     async findAllForAdminPaginated(page: number = 1, limit: number = 10, includeDeleted: boolean = false, categoryId?: string): Promise<{
         products: ProductResponseDto[];
         total: number;
@@ -441,12 +503,13 @@ export class ProductsService {
     }
 
 
-    private mapToResponseDto(product: Product): ProductResponseDto {
+    private mapToResponseDto(product: Product, orderCount?: number): ProductResponseDto {
         return {
             id: product.id,
             name: product.name,
             nameKo: product.nameKo,
             description: product.description,
+            descriptionKo: product.descriptionKo,
             price: product.price,
             image: product.image,
             categoryId: product.categoryId || undefined,
@@ -455,6 +518,7 @@ export class ProductsService {
             visible: product.visible,
             available: product.available,
             sales: product.sales,
+            orderCount: orderCount || 0,
             createdAt: product.createdAt,
             updatedAt: product.updatedAt,
             deletedAt: product.deletedAt,
