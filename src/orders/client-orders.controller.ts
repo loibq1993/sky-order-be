@@ -21,7 +21,7 @@ import { OrdersService } from './orders.service';
 import { CreateOrderDto, UpdateOrderDto, OrderResponseDto } from './orders.dto';
 
 @ApiTags('orders-client')
-@Controller('orders')
+@Controller('client/orders')
 @UseInterceptors(ClassSerializerInterceptor)
 export class ClientOrdersController {
     constructor(private readonly ordersService: OrdersService) { }
@@ -62,5 +62,22 @@ export class ClientOrdersController {
     @ApiResponse({ status: 404, description: 'Order not found' })
     async updateOrder(@Param('id') id: string, @Body() updateOrderDto: UpdateOrderDto): Promise<OrderResponseDto> {
         return this.ordersService.updateOrder(id, updateOrderDto);
+    }
+
+    @Get('table/:tableId/active')
+    @ApiOperation({ summary: 'Get active order by table (Client)' })
+    @ApiParam({ name: 'tableId', description: 'Table ID' })
+    @ApiResponse({ status: 200, description: 'Active order for table', type: OrderResponseDto })
+    @ApiResponse({ status: 404, description: 'No active order found' })
+    async getActiveOrderByTable(@Param('tableId') tableId: string): Promise<OrderResponseDto | null> {
+        return this.ordersService.getActiveOrderByTable(tableId);
+    }
+
+    @Get('table/:tableId/unpaid')
+    @ApiOperation({ summary: 'Get unpaid orders by table (Client)' })
+    @ApiParam({ name: 'tableId', description: 'Table ID' })
+    @ApiResponse({ status: 200, description: 'List of unpaid orders for table', type: [OrderResponseDto] })
+    async getUnpaidOrdersByTable(@Param('tableId') tableId: string): Promise<OrderResponseDto[]> {
+        return this.ordersService.getUnpaidOrdersByTable(tableId);
     }
 } 

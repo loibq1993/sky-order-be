@@ -267,6 +267,22 @@ export class OrderItemResponseDto {
         example: '2023-01-01T00:00:00.000Z'
     })
     updatedAt: Date;
+
+    @ApiPropertyOptional({
+        description: 'Product data',
+        type: 'object',
+        properties: {
+            id: { type: 'string', example: '123e4567-e89b-12d3-a456-426614174000' },
+            name: { type: 'string', example: 'Pho Bo' },
+            image: { type: 'string', example: 'pho-bo.png' }
+        },
+        additionalProperties: false
+    })
+    product?: {
+        id: string;
+        name: string;
+        image: string;
+    };
 }
 
 export class OrderResponseDto {

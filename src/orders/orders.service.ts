@@ -402,12 +402,16 @@ export class OrdersService {
     }
 
     async getOrdersByMultipleStatuses(statuses: OrderStatus[]): Promise<OrderResponseDto[]> {
-        const orders = await this.orderRepository
-            .createQueryBuilder('order')
-            .leftJoinAndSelect('order.orderItems', 'orderItems')
-            .where('order.status IN (:...statuses)', { statuses })
-            .orderBy('order.createdAt', 'DESC')
-            .getMany();
+        const orders = await this.orderRepository.find({
+            where: {
+                status: In(statuses),
+                deletedAt: IsNull()
+            },
+            order: {
+                createdAt: 'DESC'
+            },
+            relations: ['orderItems', 'orderItems.product']
+        });
 
         return orders.map(order => this.mapToResponseDto(order));
     }
@@ -482,6 +486,28 @@ export class OrdersService {
         return order ? this.mapToResponseDto(order) : null;
     }
 
+    async getUnpaidOrdersByTable(tableId: string): Promise<OrderResponseDto[]> {
+        const orders = await this.orderRepository
+            .createQueryBuilder('order')
+            .leftJoinAndSelect('order.orderItems', 'orderItems')
+            .leftJoinAndSelect('orderItems.product', 'product')
+            .where('order.tableNumber = :tableNumber', { tableNumber: parseInt(tableId, 10) })
+            .andWhere('order.deletedAt IS NULL')
+            .andWhere('order.status IN (:...statuses)', {
+                statuses: [OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.SERVED]
+            })
+            .orderBy('order.createdAt', 'DESC')
+            .getMany();
+
+        return orders.map(order => ({
+            ...this.mapToResponseDto(order),
+            items: order.orderItems.map(item => ({
+                ...this.mapOrderItemToDto(item),
+                product: item.product
+            }))
+        }));
+    }
+
     private async recalculateOrderTotal(orderId: string): Promise<void> {
         // Get all order items for this order
         const orderItems = await this.orderItemRepository.find({
@@ -503,6 +529,20 @@ export class OrdersService {
         });
     }
 
+    private mapOrderItemToDto(item: OrderItem): OrderItemResponseDto {
+        return {
+            id: item.id,
+            productId: item.productId,
+            productName: item.productName,
+            quantity: item.quantity,
+            price: Number(item.unitPrice),
+            totalPrice: Number(item.totalPrice),
+            notes: item.specialInstructions || undefined,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+        };
+    }
+
     private mapToResponseDto(order: Order): OrderResponseDto {
         return {
             id: order.id,
@@ -511,18 +551,18 @@ export class OrdersService {
             orderType: order.orderType as OrderType,
             tableId: order.tableId || undefined,
             tableNumber: order.tableNumber || undefined,
-            items: order.orderItems?.map(item => ({
+            items: (order.orderItems || []).map(item => ({
                 id: item.id,
                 productId: item.productId,
                 productName: item.productName,
                 quantity: item.quantity,
-                price: item.unitPrice,
-                totalPrice: item.totalPrice,
+                price: Number(item.unitPrice),
+                totalPrice: Number(item.totalPrice),
                 notes: item.specialInstructions || undefined,
                 createdAt: item.createdAt,
                 updatedAt: item.updatedAt,
-            })) || [],
-            totalAmount: order.total,
+            })),
+            totalAmount: Number(order.total),
             customerName: order.customerName || undefined,
             customerPhone: order.customerPhone || undefined,
             customerAddress: order.customerAddress || undefined,

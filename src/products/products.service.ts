@@ -47,7 +47,6 @@ export class ProductsService {
                 const filename = tempImageFilename.includes('/')
                     ? tempImageFilename.split('/').pop() || tempImageFilename
                     : tempImageFilename;
-                console.log('Extracted filename (create):', filename);
                 const moveResult = await this.uploadService.moveFromTemp(filename, 'products');
                 // Update product with new image URL
                 savedProduct.image = moveResult.url;
@@ -425,7 +424,6 @@ export class ProductsService {
             .leftJoin('order_items', 'oi', 'oi.productId = product.id')
             .getCount();
 
-        console.log('Total order items in database:', totalOrderItems);
 
         const result = await this.productRepository
             .createQueryBuilder('product')
@@ -441,10 +439,8 @@ export class ProductsService {
         const orderCounts: { [productId: string]: number } = {};
         result.forEach(item => {
             orderCounts[item.productId] = parseInt(item.orderCount) || 0;
-            console.log(`Product ${item.productName} (${item.productId}): ${item.orderCount} orders`);
         });
 
-        console.log('Final order counts by product:', orderCounts);
         return orderCounts;
     }
 

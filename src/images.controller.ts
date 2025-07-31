@@ -12,7 +12,6 @@ export class ImagesController {
     @ApiParam({ name: 'filename', description: 'Tên file ảnh' })
     serveImage(@Param('filename') filename: string, @Res() res: Response) {
         const imagePath = path.join(process.cwd(), 'public', 'images', filename);
-        console.log('Old images path:', imagePath);
 
         if (!fs.existsSync(imagePath)) {
             return res.status(404).json({
