@@ -61,7 +61,7 @@ export class QrCodeService {
         const qrCodeImagePath = await this.generateQrCode(qrData, filename);
 
         // URL để truy cập QR code (public API endpoint) - use tableId instead of qrUuid
-        const backendUrl = process.env.BACKEND_URL || 'http://localhost:4500';
+        const backendUrl = process.env.API_BASE_URL;
         const qrCodeUrl = `${backendUrl}/api/tables/qr/${tableNumber}`;
 
         return {

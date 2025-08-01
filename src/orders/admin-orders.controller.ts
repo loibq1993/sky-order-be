@@ -1,7 +1,7 @@
-import { Controller, Get, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Query, Param, Patch, Body } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
-import { OrderStatus, OrderResponseDto } from './orders.dto';
+import { OrderStatus, OrderResponseDto, UpdateOrderStatusDto } from './orders.dto';
 
 @ApiTags('admin-orders')
 @Controller('admin/orders')
@@ -48,5 +48,17 @@ export class AdminOrdersController {
     async getOrdersByMultipleStatuses(@Query('statuses') statuses: string) {
         const statusArray = statuses.split(',') as OrderStatus[];
         return this.ordersService.getOrdersByMultipleStatuses(statusArray);
+    }
+
+    @Patch(':id/status')
+    @ApiOperation({ summary: 'Update order status' })
+    @ApiParam({ name: 'id', description: 'Order ID' })
+    @ApiResponse({ status: 200, description: 'Order status updated successfully', type: OrderResponseDto })
+    @ApiResponse({ status: 404, description: 'Order not found' })
+    async updateOrderStatus(
+        @Param('id') id: string,
+        @Body() updateStatusDto: UpdateOrderStatusDto
+    ) {
+        return this.ordersService.updateOrderStatus(id, updateStatusDto.status);
     }
 } 

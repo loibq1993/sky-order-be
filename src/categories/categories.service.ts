@@ -180,13 +180,21 @@ export class CategoriesService {
         return categories.map(category => this.mapToResponseDto(category));
     }
 
+    async toggleActive(id: string): Promise<CategoryResponseDto> {
+        const category = await this.findOne(id);
+        category.isActive = !category.isActive;
+        const updatedCategory = await this.categoryRepository.save(category);
+        return this.mapToResponseDto(updatedCategory);
+    }
+
     private mapToResponseDto(category: Category): CategoryResponseDto {
         return {
             id: category.id,
             name: category.name,
             nameKo: category.nameKo,
-            icon: category.icon,
             description: category.description,
+            descriptionKo: category.descriptionKo,
+            isActive: category.isActive,
             createdAt: category.createdAt,
             updatedAt: category.updatedAt,
             deletedAt: category.deletedAt,
