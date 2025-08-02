@@ -48,21 +48,25 @@ export class QrCodeService {
         // Generate UUID for QR code
         const qrUuid = require('uuid').v4();
 
-        // Tạo URL order cho bàn (điều hướng đến frontend) - sử dụng tableNumber
-        const orderUrl = `${baseUrl}?table=${tableNumber}`;
+        // Ensure baseUrl starts with https
+        const secureBaseUrl = baseUrl.startsWith('https://') ? baseUrl : `https://${baseUrl}`;
 
-        // Tạo filename cho QR code using UUID
+        // Create order URL for the table (redirect to frontend) - using tableNumber
+        const orderUrl = `${secureBaseUrl}?table=${tableNumber}`;
+
+        // Create filename for QR code using UUID
         const filename = `qr-${qrUuid}.png`;
 
-        // Tạo QR code với URL trực tiếp (không phải JSON object)
+        // Create QR code with direct URL (not JSON object)
         const qrData = orderUrl;
 
         // Generate QR code image
         const qrCodeImagePath = await this.generateQrCode(qrData, filename);
 
-        // URL để truy cập QR code (public API endpoint) - use tableId instead of qrUuid
-        const backendUrl = process.env.API_BASE_URL;
-        const qrCodeUrl = `${backendUrl}/api/tables/qr/${tableNumber}`;
+        // URL to access QR code (public API endpoint) - use tableId instead of qrUuid
+        const backendUrl = process.env.API_BASE_URL || baseUrl;
+        const secureBackendUrl = backendUrl.startsWith('https://') ? backendUrl : `https://${backendUrl}`;
+        const qrCodeUrl = `${secureBackendUrl}/api/tables/qr/${tableNumber}`;
 
         return {
             qrCodeUrl,
