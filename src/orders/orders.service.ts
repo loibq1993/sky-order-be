@@ -561,6 +561,12 @@ export class OrdersService {
                 notes: item.specialInstructions || undefined,
                 createdAt: item.createdAt,
                 updatedAt: item.updatedAt,
+                product: item.product ? {
+                    id: item.product.id,
+                    name: item.product.name,
+                    image: item.product.image,
+                    price: Number(item.product.price)
+                } : undefined
             })),
             totalAmount: Number(order.total),
             customerName: order.customerName || undefined,
