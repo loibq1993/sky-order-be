@@ -24,11 +24,17 @@ async function bootstrap() {
   }));
 
   // Enable CORS for frontend communication
+  const corsOrigin = configService.get('app.cors.origin') || [];
+  const corsMethods = configService.get('app.cors.methods') || ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'];
+  const corsHeaders = configService.get('app.cors.allowedHeaders') || ['Content-Type', 'Authorization', 'Accept', 'X-Restaurant-ID', 'x-restaurant-id'];
+  const corsCredentials = configService.get('app.cors.credentials') !== undefined ? configService.get('app.cors.credentials') : true;
+
   app.enableCors({
-    origin: configService.get('app.cors.origin'),
-    methods: configService.get('app.cors.methods'),
-    allowedHeaders: configService.get('app.cors.allowedHeaders'),
-    credentials: configService.get('app.cors.credentials'),
+    origin: corsOrigin.length > 0 ? corsOrigin : true, // Allow all origins in development if not configured
+    methods: corsMethods,
+    allowedHeaders: corsHeaders,
+    credentials: corsCredentials,
+    exposedHeaders: ['X-Restaurant-ID', 'x-restaurant-id'], // Expose custom headers
   });
 
   // Setup Swagger documentation

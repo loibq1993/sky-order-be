@@ -9,21 +9,31 @@ import {
     UseInterceptors,
     ClassSerializerInterceptor,
     HttpCode,
-    HttpStatus
+    HttpStatus,
+    UseGuards,
+    Request
 } from '@nestjs/common';
 import {
     ApiTags,
     ApiOperation,
     ApiResponse,
     ApiParam,
-    ApiBody
+    ApiBody,
+    ApiBearerAuth
 } from '@nestjs/swagger';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto, UpdateCategoryDto, CategoryResponseDto } from './categories.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 
 @ApiTags('admin-categories')
 @Controller('admin/categories')
 @UseInterceptors(ClassSerializerInterceptor)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('super_admin', 'restaurant_owner', 'restaurant_manager')
+@ApiBearerAuth()
 export class AdminCategoriesController {
     constructor(private readonly categoriesService: CategoriesService) { }
 
@@ -36,8 +46,8 @@ export class AdminCategoriesController {
         description: 'Category created successfully',
         type: CategoryResponseDto
     })
-    async create(@Body() createCategoryDto: CreateCategoryDto): Promise<CategoryResponseDto> {
-        return this.categoriesService.create(createCategoryDto);
+    async create(@Body() createCategoryDto: CreateCategoryDto, @RestaurantId() restaurantId: string): Promise<CategoryResponseDto> {
+        return this.categoriesService.create(createCategoryDto, restaurantId);
     }
 
     @Get()
@@ -47,8 +57,8 @@ export class AdminCategoriesController {
         description: 'Categories retrieved successfully',
         type: [CategoryResponseDto]
     })
-    async findAll(): Promise<CategoryResponseDto[]> {
-        return this.categoriesService.findAll();
+    async findAll(@RestaurantId() restaurantId: string): Promise<CategoryResponseDto[]> {
+        return this.categoriesService.findAll(restaurantId);
     }
 
     @Get(':id')
@@ -59,8 +69,8 @@ export class AdminCategoriesController {
         description: 'Category retrieved successfully',
         type: CategoryResponseDto
     })
-    async findOne(@Param('id') id: string): Promise<CategoryResponseDto> {
-        return this.categoriesService.findOne(id);
+    async findOne(@Param('id') id: string, @RestaurantId() restaurantId: string): Promise<CategoryResponseDto> {
+        return this.categoriesService.findOne(id, restaurantId);
     }
 
     @Patch(':id')
@@ -74,9 +84,10 @@ export class AdminCategoriesController {
     })
     async update(
         @Param('id') id: string,
-        @Body() updateCategoryDto: UpdateCategoryDto
+        @Body() updateCategoryDto: UpdateCategoryDto,
+        @RestaurantId() restaurantId: string
     ): Promise<CategoryResponseDto> {
-        return this.categoriesService.update(id, updateCategoryDto);
+        return this.categoriesService.update(id, updateCategoryDto, restaurantId);
     }
 
     @Delete(':id')
@@ -87,8 +98,8 @@ export class AdminCategoriesController {
         status: 200,
         description: 'Category deleted successfully'
     })
-    async remove(@Param('id') id: string): Promise<{ message: string }> {
-        return this.categoriesService.remove(id);
+    async remove(@Param('id') id: string, @RestaurantId() restaurantId: string): Promise<{ message: string }> {
+        return this.categoriesService.remove(id, restaurantId);
     }
 
     @Patch(':id/toggle-active')
@@ -99,7 +110,7 @@ export class AdminCategoriesController {
         description: 'Category status toggled successfully',
         type: CategoryResponseDto
     })
-    async toggleActive(@Param('id') id: string): Promise<CategoryResponseDto> {
-        return this.categoriesService.toggleActive(id);
+    async toggleActive(@Param('id') id: string, @RestaurantId() restaurantId: string): Promise<CategoryResponseDto> {
+        return this.categoriesService.toggleActive(id, restaurantId);
     }
 } 

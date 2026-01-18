@@ -17,10 +17,14 @@ export class ProductsService {
     ) { }
 
     // Create a new product
-    async create(createProductDto: CreateProductDto, tempImageFilename?: string): Promise<ProductResponseDto> {
-        // Validate category exists
+    async create(createProductDto: CreateProductDto, tempImageFilename?: string, restaurantId?: string): Promise<ProductResponseDto> {
+        // Validate category exists and belongs to the same restaurant
         const category = await this.categoryRepository.findOne({
-            where: { id: createProductDto.categoryId, deletedAt: IsNull() },
+            where: { 
+                id: createProductDto.categoryId, 
+                deletedAt: IsNull(),
+                ...(restaurantId && { restaurantId })
+            },
         });
 
         if (!category) {
@@ -34,6 +38,7 @@ export class ProductsService {
             categoryKo: category.nameKo,
             visible: createProductDto.visible !== undefined ? createProductDto.visible : true, // Default to visible
             available: createProductDto.available !== undefined ? createProductDto.available : true, // Default to available
+            ...(restaurantId && { restaurantId }),
         };
 
         const product = this.productRepository.create(productData);
@@ -154,10 +159,20 @@ export class ProductsService {
     }
 
     // Get products by category for admin (including hidden and unavailable)
-    async findByCategoryForAdmin(categoryId: string): Promise<ProductResponseDto[]> {
+    async findByCategoryForAdmin(categoryId: string, restaurantId: string): Promise<ProductResponseDto[]> {
+        // First verify category belongs to restaurant
+        const category = await this.categoryRepository.findOne({
+            where: { id: categoryId, restaurantId, deletedAt: IsNull() },
+        });
+
+        if (!category) {
+            throw new NotFoundException(`Category with ID ${categoryId} not found for this restaurant`);
+        }
+
         const products = await this.productRepository.find({
             where: {
                 categoryId,
+                restaurantId,
                 deletedAt: IsNull(),
             },
             relations: ['categoryRelation'],
@@ -167,9 +182,14 @@ export class ProductsService {
     }
 
     // Get product by ID
-    async findOne(id: string): Promise<ProductResponseDto> {
+    async findOne(id: string, restaurantId?: string): Promise<ProductResponseDto> {
+        const whereCondition: any = { id, deletedAt: IsNull() };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const product = await this.productRepository.findOne({
-            where: { id, deletedAt: IsNull() },
+            where: whereCondition,
             relations: ['categoryRelation'],
         });
 
@@ -181,9 +201,14 @@ export class ProductsService {
     }
 
     // Update product
-    async update(id: string, updateProductDto: UpdateProductDto, tempImageFilename?: string): Promise<ProductResponseDto> {
+    async update(id: string, updateProductDto: UpdateProductDto, tempImageFilename?: string, restaurantId?: string): Promise<ProductResponseDto> {
+        const whereCondition: any = { id, deletedAt: IsNull() };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const product = await this.productRepository.findOne({
-            where: { id, deletedAt: IsNull() },
+            where: whereCondition,
             relations: ['categoryRelation'],
         });
 
@@ -191,10 +216,15 @@ export class ProductsService {
             throw new NotFoundException(`Product with ID ${id} not found`);
         }
 
-        // If categoryId is being updated, validate the new category exists
+        // If categoryId is being updated, validate the new category exists and belongs to same restaurant
         if (updateProductDto.categoryId && updateProductDto.categoryId !== product.categoryId) {
+            const categoryWhere: any = { id: updateProductDto.categoryId, deletedAt: IsNull() };
+            if (restaurantId) {
+                categoryWhere.restaurantId = restaurantId;
+            }
+
             const category = await this.categoryRepository.findOne({
-                where: { id: updateProductDto.categoryId, deletedAt: IsNull() },
+                where: categoryWhere,
             });
 
             if (!category) {
@@ -227,9 +257,14 @@ export class ProductsService {
     }
 
     // Soft delete product
-    async remove(id: string): Promise<{ message: string }> {
+    async remove(id: string, restaurantId?: string): Promise<{ message: string }> {
+        const whereCondition: any = { id, deletedAt: IsNull() };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const product = await this.productRepository.findOne({
-            where: { id, deletedAt: IsNull() },
+            where: whereCondition,
         });
 
         if (!product) {
@@ -241,9 +276,14 @@ export class ProductsService {
     }
 
     // Restore soft deleted product
-    async restore(id: string): Promise<ProductResponseDto> {
+    async restore(id: string, restaurantId?: string): Promise<ProductResponseDto> {
+        const whereCondition: any = { id };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const product = await this.productRepository.findOne({
-            where: { id },
+            where: whereCondition,
             withDeleted: true,
         });
 
@@ -253,7 +293,7 @@ export class ProductsService {
 
         await this.productRepository.restore(id);
         const restoredProduct = await this.productRepository.findOne({
-            where: { id },
+            where: whereCondition,
             relations: ['categoryRelation'],
         });
         if (!restoredProduct) {
@@ -263,9 +303,14 @@ export class ProductsService {
     }
 
     // Hard delete product
-    async hardDelete(id: string): Promise<{ message: string }> {
+    async hardDelete(id: string, restaurantId?: string): Promise<{ message: string }> {
+        const whereCondition: any = { id };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const product = await this.productRepository.findOne({
-            where: { id },
+            where: whereCondition,
             withDeleted: true,
         });
 
@@ -278,9 +323,14 @@ export class ProductsService {
     }
 
     // Update product sales count
-    async updateSales(id: string, salesCount: number): Promise<ProductResponseDto> {
+    async updateSales(id: string, salesCount: number, restaurantId?: string): Promise<ProductResponseDto> {
+        const whereCondition: any = { id, deletedAt: IsNull() };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const product = await this.productRepository.findOne({
-            where: { id, deletedAt: IsNull() },
+            where: whereCondition,
         });
 
         if (!product) {
@@ -293,9 +343,14 @@ export class ProductsService {
     }
 
     // Increment product sales count
-    async incrementSales(id: string, increment: number = 1): Promise<ProductResponseDto> {
+    async incrementSales(id: string, increment: number = 1, restaurantId?: string): Promise<ProductResponseDto> {
+        const whereCondition: any = { id, deletedAt: IsNull() };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const product = await this.productRepository.findOne({
-            where: { id, deletedAt: IsNull() },
+            where: whereCondition,
         });
 
         if (!product) {
@@ -329,15 +384,21 @@ export class ProductsService {
     }
 
     // Search products for admin (including hidden and unavailable)
-    async searchForAdmin(query: string): Promise<ProductResponseDto[]> {
-        const products = await this.productRepository
+    async searchForAdmin(query: string, restaurantId: string): Promise<ProductResponseDto[]> {
+        const queryBuilder = this.productRepository
             .createQueryBuilder('product')
             .leftJoinAndSelect('product.categoryRelation', 'category')
             .where('product.deletedAt IS NULL')
             .andWhere(
                 '(product.name LIKE :query OR product.nameKo LIKE :query OR product.description LIKE :query)',
                 { query: `%${query}%` }
-            )
+            );
+
+        if (restaurantId) {
+            queryBuilder.andWhere('product.restaurantId = :restaurantId', { restaurantId });
+        }
+
+        const products = await queryBuilder
             .orderBy('product.createdAt', 'ASC')
             .getMany();
 
@@ -364,11 +425,14 @@ export class ProductsService {
     }
 
     // Get popular products for admin (including hidden and unavailable)
-    async getPopularForAdmin(limit: number = 10): Promise<ProductResponseDto[]> {
+    async getPopularForAdmin(limit: number = 10, restaurantId?: string): Promise<ProductResponseDto[]> {
+        const whereCondition: any = { deletedAt: IsNull() };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const products = await this.productRepository.find({
-            where: {
-                deletedAt: IsNull(),
-            },
+            where: whereCondition,
             relations: ['categoryRelation'],
             order: { sales: 'DESC', createdAt: 'ASC' },
             take: limit,
@@ -377,9 +441,14 @@ export class ProductsService {
     }
 
     // Toggle product visibility
-    async toggleVisibility(id: string): Promise<ProductResponseDto> {
+    async toggleVisibility(id: string, restaurantId?: string): Promise<ProductResponseDto> {
+        const whereCondition: any = { id, deletedAt: IsNull() };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const product = await this.productRepository.findOne({
-            where: { id, deletedAt: IsNull() },
+            where: whereCondition,
         });
 
         if (!product) {
@@ -392,9 +461,14 @@ export class ProductsService {
     }
 
     // Toggle product availability
-    async toggleAvailability(id: string): Promise<ProductResponseDto> {
+    async toggleAvailability(id: string, restaurantId?: string): Promise<ProductResponseDto> {
+        const whereCondition: any = { id, deletedAt: IsNull() };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const product = await this.productRepository.findOne({
-            where: { id, deletedAt: IsNull() },
+            where: whereCondition,
         });
 
         if (!product) {
@@ -407,9 +481,9 @@ export class ProductsService {
     }
 
     // Get all products for admin (including hidden and unavailable)
-    async findAllForAdmin(): Promise<ProductResponseDto[]> {
+    async findAllForAdmin(restaurantId: string): Promise<ProductResponseDto[]> {
         const products = await this.productRepository.find({
-            where: { deletedAt: IsNull() },
+            where: { restaurantId, deletedAt: IsNull() },
             relations: ['categoryRelation'],
             order: { createdAt: 'ASC' },
         });
@@ -445,9 +519,10 @@ export class ProductsService {
     }
 
     // Get count of active products
-    async getActiveProductsCount(): Promise<number> {
+    async getActiveProductsCount(restaurantId: string): Promise<number> {
         return this.productRepository.count({
             where: {
+                restaurantId,
                 deletedAt: IsNull(),
                 available: true,
                 visible: true
@@ -455,7 +530,7 @@ export class ProductsService {
         });
     }
 
-    async findAllForAdminPaginated(page: number = 1, limit: number = 10, includeDeleted: boolean = false, categoryId?: string): Promise<{
+    async findAllForAdminPaginated(page: number = 1, limit: number = 10, includeDeleted: boolean = false, categoryId?: string, restaurantId?: string): Promise<{
         products: ProductResponseDto[];
         total: number;
         page: number;
@@ -465,6 +540,9 @@ export class ProductsService {
         const skip = (page - 1) * limit;
 
         const whereCondition: any = {};
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
         if (categoryId) {
             whereCondition.categoryId = categoryId;
         }

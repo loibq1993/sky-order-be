@@ -9,6 +9,8 @@ import { OrdersModule } from './orders/orders.module';
 import { TablesModule } from './tables/tables.module';
 import { UploadModule } from './upload/upload.module';
 import { StatisticsModule } from './statistics/statistics.module';
+import { AuthModule } from './auth/auth.module';
+import { AdminModule } from './admin/admin.module';
 import { ImagesController } from './images.controller';
 import configuration from './config/configuration';
 import { getTypeOrmConfig } from './config/typeorm.config';
@@ -30,6 +32,8 @@ import { getTypeOrmConfig } from './config/typeorm.config';
     TablesModule,
     UploadModule,
     StatisticsModule,
+    AuthModule,
+    AdminModule,
   ],
   controllers: [AppController, ImagesController],
   providers: [AppService],

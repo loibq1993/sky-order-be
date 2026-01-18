@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Restaurant } from './restaurant.entity';
 
 @Entity('tables')
 export class Table {
@@ -35,6 +36,9 @@ export class Table {
     @Column({ type: 'boolean', default: true })
     isActive: boolean; // Bàn có hoạt động không
 
+    @Column({ type: 'uuid' })
+    restaurantId: string;
+
     @CreateDateColumn()
     createdAt: Date;
 
@@ -43,4 +47,9 @@ export class Table {
 
     @DeleteDateColumn()
     deletedAt: Date;
+
+    // Relations
+    @ManyToOne(() => Restaurant, restaurant => restaurant.tables)
+    @JoinColumn({ name: 'restaurantId' })
+    restaurant: Restaurant;
 } 

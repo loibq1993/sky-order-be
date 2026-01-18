@@ -1,6 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
 import { Product } from './product.entity';
 import { Table } from './table.entity';
+import { Restaurant } from './restaurant.entity';
 
 @Entity('orders')
 export class Order {
@@ -52,6 +53,9 @@ export class Order {
     @Column({ type: 'timestamp', nullable: true })
     actualDeliveryTime: Date | null;
 
+    @Column({ type: 'uuid' })
+    restaurantId: string;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 
@@ -62,6 +66,10 @@ export class Order {
     deletedAt: Date;
 
     // Relations
+    @ManyToOne(() => Restaurant, restaurant => restaurant.orders)
+    @JoinColumn({ name: 'restaurantId' })
+    restaurant: Restaurant;
+
     @OneToMany(() => OrderItem, orderItem => orderItem.order)
     orderItems: OrderItem[];
 

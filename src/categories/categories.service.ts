@@ -11,21 +11,24 @@ export class CategoriesService {
         private readonly categoryRepository: Repository<Category>,
     ) { }
 
-    async create(createCategoryDto: CreateCategoryDto): Promise<CategoryResponseDto> {
-        const category = this.categoryRepository.create(createCategoryDto);
+    async create(createCategoryDto: CreateCategoryDto, restaurantId: string): Promise<CategoryResponseDto> {
+        const category = this.categoryRepository.create({
+            ...createCategoryDto,
+            restaurantId,
+        });
         const savedCategory = await this.categoryRepository.save(category);
         return this.mapToResponseDto(savedCategory);
     }
 
-    async findAll(): Promise<CategoryResponseDto[]> {
+    async findAll(restaurantId: string): Promise<CategoryResponseDto[]> {
         const categories = await this.categoryRepository.find({
-            where: { deletedAt: IsNull() },
+            where: { restaurantId, deletedAt: IsNull() },
             order: { createdAt: 'DESC' }
         });
         return categories.map(category => this.mapToResponseDto(category));
     }
 
-    async findAllPaginated(page: number = 1, limit: number = 10, includeDeleted: boolean = false): Promise<{
+    async findAllPaginated(restaurantId: string, page: number = 1, limit: number = 10, includeDeleted: boolean = false): Promise<{
         categories: CategoryResponseDto[];
         total: number;
         page: number;
@@ -35,7 +38,7 @@ export class CategoriesService {
         const skip = (page - 1) * limit;
 
         const [categories, total] = await this.categoryRepository.findAndCount({
-            where: includeDeleted ? {} : { deletedAt: IsNull() },
+            where: includeDeleted ? { restaurantId } : { restaurantId, deletedAt: IsNull() },
             order: { createdAt: 'DESC' },
             skip,
             take: limit,
@@ -53,17 +56,18 @@ export class CategoriesService {
         };
     }
 
-    async findAllWithDeleted(): Promise<CategoryResponseDto[]> {
+    async findAllWithDeleted(restaurantId: string): Promise<CategoryResponseDto[]> {
         const categories = await this.categoryRepository.find({
+            where: { restaurantId },
             withDeleted: true,
             order: { createdAt: 'DESC' }
         });
         return categories.map(category => this.mapToResponseDto(category));
     }
 
-    async findOne(id: string): Promise<CategoryResponseDto> {
+    async findOne(id: string, restaurantId: string): Promise<CategoryResponseDto> {
         const category = await this.categoryRepository.findOne({
-            where: { id, deletedAt: IsNull() }
+            where: { id, restaurantId, deletedAt: IsNull() }
         });
         if (!category) {
             throw new NotFoundException(`Category with ID ${id} not found`);
@@ -71,9 +75,9 @@ export class CategoriesService {
         return this.mapToResponseDto(category);
     }
 
-    async update(id: string, updateCategoryDto: UpdateCategoryDto): Promise<CategoryResponseDto> {
+    async update(id: string, updateCategoryDto: UpdateCategoryDto, restaurantId: string): Promise<CategoryResponseDto> {
         const category = await this.categoryRepository.findOne({
-            where: { id, deletedAt: IsNull() }
+            where: { id, restaurantId, deletedAt: IsNull() }
         });
         if (!category) {
             throw new NotFoundException(`Category with ID ${id} not found`);
@@ -84,9 +88,9 @@ export class CategoriesService {
         return this.mapToResponseDto(updatedCategory);
     }
 
-    async remove(id: string): Promise<{ message: string }> {
+    async remove(id: string, restaurantId: string): Promise<{ message: string }> {
         const category = await this.categoryRepository.findOne({
-            where: { id, deletedAt: IsNull() }
+            where: { id, restaurantId, deletedAt: IsNull() }
         });
         if (!category) {
             throw new NotFoundException(`Category with ID ${id} not found`);
@@ -96,9 +100,9 @@ export class CategoriesService {
         return { message: 'Category deleted successfully' };
     }
 
-    async restore(id: string): Promise<CategoryResponseDto> {
+    async restore(id: string, restaurantId: string): Promise<CategoryResponseDto> {
         const category = await this.categoryRepository.findOne({
-            where: { id },
+            where: { id, restaurantId },
             withDeleted: true
         });
         if (!category) {
@@ -107,7 +111,7 @@ export class CategoriesService {
 
         await this.categoryRepository.restore(id);
         const restoredCategory = await this.categoryRepository.findOne({
-            where: { id }
+            where: { id, restaurantId }
         });
         if (!restoredCategory) {
             throw new NotFoundException(`Category with ID ${id} not found after restore`);
@@ -115,9 +119,9 @@ export class CategoriesService {
         return this.mapToResponseDto(restoredCategory);
     }
 
-    async hardDelete(id: string): Promise<{ message: string }> {
+    async hardDelete(id: string, restaurantId: string): Promise<{ message: string }> {
         const category = await this.categoryRepository.findOne({
-            where: { id },
+            where: { id, restaurantId },
             withDeleted: true
         });
         if (!category) {
@@ -128,12 +132,13 @@ export class CategoriesService {
         return { message: 'Category permanently deleted' };
     }
 
-    async findWithMenuCount(): Promise<(CategoryResponseDto & { menuCount: number })[]> {
+    async findWithMenuCount(restaurantId: string): Promise<(CategoryResponseDto & { menuCount: number })[]> {
         const categories = await this.categoryRepository
             .createQueryBuilder('category')
             .leftJoin('category.products', 'product')
             .addSelect('COUNT(product.id)', 'menuCount')
-            .where('category.deletedAt IS NULL')
+            .where('category.restaurantId = :restaurantId', { restaurantId })
+            .andWhere('category.deletedAt IS NULL')
             .andWhere('product.deletedAt IS NULL OR product.deletedAt IS NULL')
             .groupBy('category.id')
             .orderBy('category.createdAt', 'DESC')
@@ -145,12 +150,13 @@ export class CategoriesService {
         }));
     }
 
-    async findOneWithProductCount(id: string): Promise<CategoryResponseDto & { productCount: number }> {
+    async findOneWithProductCount(id: string, restaurantId: string): Promise<CategoryResponseDto & { productCount: number }> {
         const category = await this.categoryRepository
             .createQueryBuilder('category')
             .leftJoin('category.products', 'product')
             .addSelect('COUNT(product.id)', 'productCount')
             .where('category.id = :id', { id })
+            .andWhere('category.restaurantId = :restaurantId', { restaurantId })
             .andWhere('category.deletedAt IS NULL')
             .andWhere('product.deletedAt IS NULL OR product.deletedAt IS NULL')
             .groupBy('category.id')
@@ -166,10 +172,11 @@ export class CategoriesService {
         };
     }
 
-    async search(query: string): Promise<CategoryResponseDto[]> {
+    async search(query: string, restaurantId: string): Promise<CategoryResponseDto[]> {
         const categories = await this.categoryRepository
             .createQueryBuilder('category')
-            .where('category.deletedAt IS NULL')
+            .where('category.restaurantId = :restaurantId', { restaurantId })
+            .andWhere('category.deletedAt IS NULL')
             .andWhere(
                 '(category.name LIKE :query OR category.nameKo LIKE :query OR category.description LIKE :query)',
                 { query: `%${query}%` }
@@ -180,8 +187,8 @@ export class CategoriesService {
         return categories.map(category => this.mapToResponseDto(category));
     }
 
-    async toggleActive(id: string): Promise<CategoryResponseDto> {
-        const category = await this.findOne(id);
+    async toggleActive(id: string, restaurantId: string): Promise<CategoryResponseDto> {
+        const category = await this.findOne(id, restaurantId);
         category.isActive = !category.isActive;
         const updatedCategory = await this.categoryRepository.save(category);
         return this.mapToResponseDto(updatedCategory);

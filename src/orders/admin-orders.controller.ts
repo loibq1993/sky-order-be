@@ -1,53 +1,69 @@
-import { Controller, Get, Query, Param, Patch, Body } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from '@nestjs/swagger';
+import { Controller, Get, Query, Param, Patch, Body, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
 import { OrderStatus, OrderResponseDto, UpdateOrderStatusDto } from './orders.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 
 @ApiTags('admin-orders')
 @Controller('admin/orders')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('super_admin', 'restaurant_owner', 'restaurant_manager', 'restaurant_staff')
+@ApiBearerAuth()
 export class AdminOrdersController {
     constructor(private readonly ordersService: OrdersService) { }
 
     @Get('count/total')
     @ApiOperation({ summary: 'Get total number of orders' })
     @ApiResponse({ status: 200, description: 'Returns total number of orders' })
-    async getTotalOrders() {
-        const count = await this.ordersService.getTotalOrdersCount();
+    async getTotalOrders(@RestaurantId() restaurantId?: string) {
+        const count = await this.ordersService.getTotalOrdersCount(restaurantId);
         return { count };
     }
 
     @Get('count/by-status')
     @ApiOperation({ summary: 'Get number of orders by status' })
     @ApiResponse({ status: 200, description: 'Returns number of orders for given statuses' })
-    async getOrdersByStatus(@Query('statuses') statuses: string) {
+    async getOrdersByStatus(
+        @Query('statuses') statuses: string,
+        @RestaurantId() restaurantId?: string
+    ) {
         const statusArray = statuses.split(',') as OrderStatus[];
-        const count = await this.ordersService.getOrdersCountByStatuses(statusArray);
+        const count = await this.ordersService.getOrdersCountByStatuses(statusArray, restaurantId);
         return { count };
     }
 
     @Get('revenue/today')
     @ApiOperation({ summary: 'Get total revenue for today' })
     @ApiResponse({ status: 200, description: 'Returns total revenue for today' })
-    async getTodayRevenue() {
-        const revenue = await this.ordersService.getTodayRevenue();
+    async getTodayRevenue(@RestaurantId() restaurantId?: string) {
+        const revenue = await this.ordersService.getTodayRevenue(restaurantId);
         return { revenue };
     }
 
     @Get('recent')
     @ApiOperation({ summary: 'Get recent orders' })
     @ApiResponse({ status: 200, description: 'Returns list of recent orders' })
-    async getRecentOrders(@Query('limit') limit: string = '5') {
+    async getRecentOrders(
+        @Query('limit') limit: string = '5',
+        @RestaurantId() restaurantId?: string
+    ) {
         const limitNum = parseInt(limit, 10);
-        return this.ordersService.getRecentOrders(limitNum);
+        return this.ordersService.getRecentOrders(limitNum, restaurantId);
     }
 
     @Get('filter/status/multiple')
     @ApiOperation({ summary: 'Get orders by multiple statuses' })
     @ApiQuery({ name: 'statuses', description: 'Comma-separated list of order statuses' })
     @ApiResponse({ status: 200, description: 'Returns orders matching the specified statuses', type: [OrderResponseDto] })
-    async getOrdersByMultipleStatuses(@Query('statuses') statuses: string) {
+    async getOrdersByMultipleStatuses(
+        @Query('statuses') statuses: string,
+        @RestaurantId() restaurantId?: string
+    ) {
         const statusArray = statuses.split(',') as OrderStatus[];
-        return this.ordersService.getOrdersByMultipleStatuses(statusArray);
+        return this.ordersService.getOrdersByMultipleStatuses(statusArray, restaurantId);
     }
 
     @Patch(':id/status')
@@ -57,8 +73,9 @@ export class AdminOrdersController {
     @ApiResponse({ status: 404, description: 'Order not found' })
     async updateOrderStatus(
         @Param('id') id: string,
-        @Body() updateStatusDto: UpdateOrderStatusDto
+        @Body() updateStatusDto: UpdateOrderStatusDto,
+        @RestaurantId() restaurantId?: string
     ) {
-        return this.ordersService.updateOrderStatus(id, updateStatusDto.status);
+        return this.ordersService.updateOrderStatus(id, updateStatusDto.status, restaurantId);
     }
 } 

@@ -1,6 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany, DeleteDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany, DeleteDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { Product } from './product.entity';
 import { ProductCategory } from './product-category.entity';
+import { Restaurant } from './restaurant.entity';
 
 @Entity('categories')
 export class Category {
@@ -25,6 +26,9 @@ export class Category {
     @Column({ type: 'boolean', default: true })
     isActive: boolean;
 
+    @Column({ type: 'uuid' })
+    restaurantId: string;
+
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 
@@ -35,6 +39,10 @@ export class Category {
     deletedAt: Date;
 
     // Relations
+    @ManyToOne(() => Restaurant, restaurant => restaurant.categories)
+    @JoinColumn({ name: 'restaurantId' })
+    restaurant: Restaurant;
+
     @OneToMany('Product', 'categoryRelation')
     products: Product[];
 

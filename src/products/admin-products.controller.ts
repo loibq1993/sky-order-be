@@ -10,7 +10,8 @@ import {
     UseInterceptors,
     ClassSerializerInterceptor,
     HttpCode,
-    HttpStatus
+    HttpStatus,
+    UseGuards
 } from '@nestjs/common';
 import {
     ApiTags,
@@ -18,14 +19,22 @@ import {
     ApiResponse,
     ApiParam,
     ApiQuery,
-    ApiBody
+    ApiBody,
+    ApiBearerAuth
 } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
 import { CreateProductDto, UpdateProductDto, ProductResponseDto } from './products.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 
 @ApiTags('products-admin')
 @Controller('admin/products')
 @UseInterceptors(ClassSerializerInterceptor)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('super_admin', 'restaurant_owner', 'restaurant_manager')
+@ApiBearerAuth()
 export class AdminProductsController {
     constructor(private readonly productsService: ProductsService) { }
 
@@ -39,9 +48,12 @@ export class AdminProductsController {
         type: ProductResponseDto
     })
     @ApiResponse({ status: 400, description: 'Bad request - validation error' })
-    async create(@Body() createProductDto: CreateProductDto): Promise<ProductResponseDto> {
+    async create(
+        @Body() createProductDto: CreateProductDto,
+        @RestaurantId() restaurantId: string
+    ): Promise<ProductResponseDto> {
         const { tempImageFilename, ...productData } = createProductDto as any;
-        return this.productsService.create(productData, tempImageFilename);
+        return this.productsService.create(productData, tempImageFilename, restaurantId);
     }
 
     @Get()
@@ -63,7 +75,8 @@ export class AdminProductsController {
         @Query('page') page?: string,
         @Query('limit') limit?: string,
         @Query('categoryId') categoryId?: string,
-        @Query('includeDeleted') includeDeleted?: string
+        @Query('includeDeleted') includeDeleted?: string,
+        @RestaurantId() restaurantId?: string
     ): Promise<{
         products: ProductResponseDto[];
         total: number;
@@ -75,49 +88,61 @@ export class AdminProductsController {
         const limitNumber = limit ? parseInt(limit, 10) : 10;
 
         if (includeDeleted === 'true') {
-            return this.productsService.findAllForAdminPaginated(pageNumber, limitNumber, true, categoryId);
+            return this.productsService.findAllForAdminPaginated(pageNumber, limitNumber, true, categoryId, restaurantId);
         }
-        return this.productsService.findAllForAdminPaginated(pageNumber, limitNumber, false, categoryId);
+        return this.productsService.findAllForAdminPaginated(pageNumber, limitNumber, false, categoryId, restaurantId);
     }
 
     @Get('category/:categoryId')
     @ApiOperation({ summary: 'Get products by category (Admin)' })
     @ApiParam({ name: 'categoryId', description: 'Category ID' })
-    async findByCategory(@Param('categoryId') categoryId: string): Promise<ProductResponseDto[]> {
-        return this.productsService.findByCategoryForAdmin(categoryId);
+    async findByCategory(
+        @Param('categoryId') categoryId: string,
+        @RestaurantId() restaurantId: string
+    ): Promise<ProductResponseDto[]> {
+        return this.productsService.findByCategoryForAdmin(categoryId, restaurantId);
     }
 
     @Get('search')
     @ApiOperation({ summary: 'Search products (Admin)' })
     @ApiQuery({ name: 'q', description: 'Search query' })
-    async search(@Query('q') query: string): Promise<ProductResponseDto[]> {
+    async search(
+        @Query('q') query: string,
+        @RestaurantId() restaurantId: string
+    ): Promise<ProductResponseDto[]> {
         if (!query) {
-            return this.productsService.findAllForAdmin();
+            return this.productsService.findAllForAdmin(restaurantId);
         }
-        return this.productsService.searchForAdmin(query);
+        return this.productsService.searchForAdmin(query, restaurantId);
     }
 
     @Get('popular')
     @ApiOperation({ summary: 'Get popular products (Admin)' })
     @ApiQuery({ name: 'limit', required: false, description: 'Number of products to return' })
-    async getPopular(@Query('limit') limit?: string): Promise<ProductResponseDto[]> {
+    async getPopular(
+        @Query('limit') limit?: string,
+        @RestaurantId() restaurantId?: string
+    ): Promise<ProductResponseDto[]> {
         const limitNumber = limit ? parseInt(limit, 10) : 10;
-        return this.productsService.getPopularForAdmin(limitNumber);
+        return this.productsService.getPopularForAdmin(limitNumber, restaurantId);
     }
 
     @Get('count/active')
     @ApiOperation({ summary: 'Get count of active products' })
     @ApiResponse({ status: 200, description: 'Returns count of active products' })
-    async getActiveProductsCount() {
-        const count = await this.productsService.getActiveProductsCount();
+    async getActiveProductsCount(@RestaurantId() restaurantId: string) {
+        const count = await this.productsService.getActiveProductsCount(restaurantId);
         return { count };
     }
 
     @Get(':id')
     @ApiOperation({ summary: 'Get product by ID (Admin)' })
     @ApiParam({ name: 'id', description: 'Product ID' })
-    async findOne(@Param('id') id: string): Promise<ProductResponseDto> {
-        return this.productsService.findOne(id);
+    async findOne(
+        @Param('id') id: string,
+        @RestaurantId() restaurantId: string
+    ): Promise<ProductResponseDto> {
+        return this.productsService.findOne(id, restaurantId);
     }
 
     @Patch(':id')
@@ -126,34 +151,44 @@ export class AdminProductsController {
     @ApiBody({ type: UpdateProductDto })
     async update(
         @Param('id') id: string,
-        @Body() updateProductDto: UpdateProductDto
+        @Body() updateProductDto: UpdateProductDto,
+        @RestaurantId() restaurantId: string
     ): Promise<ProductResponseDto> {
         // Extract tempImageFilename from the request body if it exists
         const { tempImageFilename, ...productData } = updateProductDto as any;
-        return this.productsService.update(id, productData, tempImageFilename);
+        return this.productsService.update(id, productData, tempImageFilename, restaurantId);
     }
 
     @Delete(':id')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Soft delete product (Admin)' })
     @ApiParam({ name: 'id', description: 'Product ID' })
-    async remove(@Param('id') id: string): Promise<{ message: string }> {
-        return this.productsService.remove(id);
+    async remove(
+        @Param('id') id: string,
+        @RestaurantId() restaurantId: string
+    ): Promise<{ message: string }> {
+        return this.productsService.remove(id, restaurantId);
     }
 
     @Patch(':id/restore')
     @ApiOperation({ summary: 'Restore soft deleted product (Admin)' })
     @ApiParam({ name: 'id', description: 'Product ID' })
-    async restore(@Param('id') id: string): Promise<ProductResponseDto> {
-        return this.productsService.restore(id);
+    async restore(
+        @Param('id') id: string,
+        @RestaurantId() restaurantId: string
+    ): Promise<ProductResponseDto> {
+        return this.productsService.restore(id, restaurantId);
     }
 
     @Delete(':id/hard')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Permanently delete product (Admin)' })
     @ApiParam({ name: 'id', description: 'Product ID' })
-    async hardDelete(@Param('id') id: string): Promise<{ message: string }> {
-        return this.productsService.hardDelete(id);
+    async hardDelete(
+        @Param('id') id: string,
+        @RestaurantId() restaurantId: string
+    ): Promise<{ message: string }> {
+        return this.productsService.hardDelete(id, restaurantId);
     }
 
     @Patch(':id/sales')
@@ -161,9 +196,10 @@ export class AdminProductsController {
     @ApiParam({ name: 'id', description: 'Product ID' })
     async updateSales(
         @Param('id') id: string,
-        @Body() body: { sales: number }
+        @Body() body: { sales: number },
+        @RestaurantId() restaurantId: string
     ): Promise<ProductResponseDto> {
-        return this.productsService.updateSales(id, body.sales);
+        return this.productsService.updateSales(id, body.sales, restaurantId);
     }
 
     @Patch(':id/sales/increment')
@@ -171,22 +207,29 @@ export class AdminProductsController {
     @ApiParam({ name: 'id', description: 'Product ID' })
     async incrementSales(
         @Param('id') id: string,
-        @Body() body: { increment?: number }
+        @Body() body: { increment?: number },
+        @RestaurantId() restaurantId: string
     ): Promise<ProductResponseDto> {
-        return this.productsService.incrementSales(id, body.increment || 1);
+        return this.productsService.incrementSales(id, body.increment || 1, restaurantId);
     }
 
     @Patch(':id/visibility')
     @ApiOperation({ summary: 'Toggle product visibility (Admin)' })
     @ApiParam({ name: 'id', description: 'Product ID' })
-    async toggleVisibility(@Param('id') id: string): Promise<ProductResponseDto> {
-        return this.productsService.toggleVisibility(id);
+    async toggleVisibility(
+        @Param('id') id: string,
+        @RestaurantId() restaurantId: string
+    ): Promise<ProductResponseDto> {
+        return this.productsService.toggleVisibility(id, restaurantId);
     }
 
     @Patch(':id/availability')
     @ApiOperation({ summary: 'Toggle product availability (Admin)' })
     @ApiParam({ name: 'id', description: 'Product ID' })
-    async toggleAvailability(@Param('id') id: string): Promise<ProductResponseDto> {
-        return this.productsService.toggleAvailability(id);
+    async toggleAvailability(
+        @Param('id') id: string,
+        @RestaurantId() restaurantId: string
+    ): Promise<ProductResponseDto> {
+        return this.productsService.toggleAvailability(id, restaurantId);
     }
 } 

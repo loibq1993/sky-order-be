@@ -23,12 +23,12 @@ export class AppConfig {
 
     get cors() {
         return {
-            origin: this.configService.get<string[]>('app.cors.origin', []),
+            origin: this.configService.get<string[]>('app.cors.origin', ['http://localhost:3000', 'http://localhost:3001']),
             methods: this.configService.get<string[]>('app.cors.methods', [
                 'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'
             ]),
             allowedHeaders: this.configService.get<string[]>('app.cors.allowedHeaders', [
-                'Content-Type', 'Authorization', 'Accept'
+                'Content-Type', 'Authorization', 'Accept', 'X-Restaurant-ID', 'x-restaurant-id'
             ]),
             credentials: this.configService.get<boolean>('app.cors.credentials', true),
         };

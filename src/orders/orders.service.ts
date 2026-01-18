@@ -138,9 +138,14 @@ export class OrdersService {
         return orders.map(order => this.mapToResponseDto(order));
     }
 
-    async findOne(id: string): Promise<OrderResponseDto> {
+    async findOne(id: string, restaurantId?: string): Promise<OrderResponseDto> {
+        const whereCondition: any = { id };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const order = await this.orderRepository.findOne({
-            where: { id },
+            where: whereCondition,
             relations: ['orderItems'],
         });
 
@@ -311,8 +316,13 @@ export class OrdersService {
         return this.findOne(id);
     }
 
-    async updateOrderStatus(id: string, status: OrderStatus): Promise<OrderResponseDto> {
-        const order = await this.orderRepository.findOne({ where: { id } });
+    async updateOrderStatus(id: string, status: OrderStatus, restaurantId?: string): Promise<OrderResponseDto> {
+        const whereCondition: any = { id };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
+        const order = await this.orderRepository.findOne({ where: whereCondition });
 
         if (!order) {
             throw new NotFoundException(`Order with ID ${id} not found`);
@@ -321,7 +331,7 @@ export class OrdersService {
         order.status = status;
         await this.orderRepository.save(order);
 
-        return this.findOne(id);
+        return this.findOne(id, restaurantId);
     }
 
     async findAllWithDeleted(): Promise<OrderResponseDto[]> {
@@ -401,12 +411,17 @@ export class OrdersService {
         return orders.map(order => this.mapToResponseDto(order));
     }
 
-    async getOrdersByMultipleStatuses(statuses: OrderStatus[]): Promise<OrderResponseDto[]> {
+    async getOrdersByMultipleStatuses(statuses: OrderStatus[], restaurantId?: string): Promise<OrderResponseDto[]> {
+        const whereCondition: any = {
+            status: In(statuses),
+            deletedAt: IsNull()
+        };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const orders = await this.orderRepository.find({
-            where: {
-                status: In(statuses),
-                deletedAt: IsNull()
-            },
+            where: whereCondition,
             order: {
                 createdAt: 'DESC'
             },
@@ -439,14 +454,17 @@ export class OrdersService {
         return count;
     }
 
-    async getOrdersCountByStatuses(statuses: OrderStatus[]): Promise<number> {
-        const count = await this.orderRepository
+    async getOrdersCountByStatuses(statuses: OrderStatus[], restaurantId?: string): Promise<number> {
+        const queryBuilder = this.orderRepository
             .createQueryBuilder('order')
             .where('order.status IN (:...statuses)', { statuses })
-            .andWhere('order.deletedAt IS NULL')
-            .getCount();
+            .andWhere('order.deletedAt IS NULL');
 
-        return count;
+        if (restaurantId) {
+            queryBuilder.andWhere('order.restaurantId = :restaurantId', { restaurantId });
+        }
+
+        return queryBuilder.getCount();
     }
 
     async getPendingOrdersCount(): Promise<number> {
@@ -582,34 +600,49 @@ export class OrdersService {
     }
 
     // Get total number of orders
-    async getTotalOrdersCount(): Promise<number> {
+    async getTotalOrdersCount(restaurantId?: string): Promise<number> {
+        const whereCondition: any = { deletedAt: IsNull() };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
         return this.orderRepository.count({
-            where: { deletedAt: IsNull() }
+            where: whereCondition
         });
     }
 
     // Get today's revenue
-    async getTodayRevenue(): Promise<number> {
+    async getTodayRevenue(restaurantId?: string): Promise<number> {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        const result = await this.orderRepository
+        const queryBuilder = this.orderRepository
             .createQueryBuilder('order')
             .select('SUM(order.total)', 'total')
             .where('order.deletedAt IS NULL')
             .andWhere('order.status NOT IN (:...excludedStatuses)', {
                 excludedStatuses: [OrderStatus.CANCELLED]
             })
-            .andWhere('order.createdAt >= :today', { today })
-            .getRawOne();
+            .andWhere('order.createdAt >= :today', { today });
+
+        if (restaurantId) {
+            queryBuilder.andWhere('order.restaurantId = :restaurantId', { restaurantId });
+        }
+
+        const result = await queryBuilder.getRawOne();
 
         return result?.total || 0;
     }
 
     // Get recent orders
-    async getRecentOrders(limit: number = 5): Promise<OrderResponseDto[]> {
+    async getRecentOrders(limit: number = 5, restaurantId?: string): Promise<OrderResponseDto[]> {
+        const whereCondition: any = { deletedAt: IsNull() };
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
+        }
+
         const orders = await this.orderRepository.find({
-            where: { deletedAt: IsNull() },
+            where: whereCondition,
+            relations: ['orderItems'],
             order: { createdAt: 'DESC' },
             take: limit
         });
