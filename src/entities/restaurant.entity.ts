@@ -22,8 +22,11 @@ export class Restaurant {
     @Column({ type: 'text', nullable: true })
     descriptionKo: string;
 
-    @Column({ type: 'varchar', length: 500, nullable: true })
+    @Column({ type: 'longtext', nullable: true })
     logo: string;
+
+    @Column({ type: 'longtext', nullable: true })
+    coverImage: string;
 
     @Column({ type: 'varchar', length: 200, nullable: true })
     address: string;
@@ -36,6 +39,9 @@ export class Restaurant {
 
     @Column({ type: 'varchar', length: 200, nullable: true })
     website: string;
+
+    @Column({ type: 'varchar', length: 200, nullable: true, unique: true })
+    customDomain: string;
 
     @Column({ type: 'varchar', length: 50, nullable: true })
     timezone: string;
@@ -51,6 +57,9 @@ export class Restaurant {
 
     @Column({ type: 'json', nullable: true })
     settings: any; // Store restaurant-specific settings like tax rate, delivery fees, etc.
+
+    @Column({ type: 'json', nullable: true })
+    businessHours: any; // Store business hours configuration
 
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;

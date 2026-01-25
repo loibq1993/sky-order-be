@@ -16,7 +16,7 @@ import { CategoryResponseDto } from './categories.dto';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 
 @ApiTags('categories-client')
-@Controller('categories')
+@Controller('client/categories')
 @UseInterceptors(ClassSerializerInterceptor)
 export class ClientCategoriesController {
     constructor(private readonly categoriesService: CategoriesService) { }

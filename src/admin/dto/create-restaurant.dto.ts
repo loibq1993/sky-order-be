@@ -27,6 +27,11 @@ export class CreateRestaurantDto {
   @IsString()
   logo?: string;
 
+  @ApiProperty({ description: 'Restaurant cover image URL', required: false })
+  @IsOptional()
+  @IsString()
+  coverImage?: string;
+
   @ApiProperty({ description: 'Restaurant address', required: false })
   @IsOptional()
   @IsString()
@@ -47,6 +52,11 @@ export class CreateRestaurantDto {
   @IsString()
   website?: string;
 
+  @ApiProperty({ description: 'Restaurant custom domain', required: false })
+  @IsOptional()
+  @IsString()
+  customDomain?: string;
+
   @ApiProperty({ description: 'Restaurant timezone', required: false })
   @IsOptional()
   @IsString()
@@ -66,4 +76,9 @@ export class CreateRestaurantDto {
   @IsOptional()
   @IsObject()
   settings?: any;
+
+  @ApiProperty({ description: 'Restaurant business hours', required: false })
+  @IsOptional()
+  @IsObject()
+  businessHours?: any;
 }

@@ -15,10 +15,14 @@ export class TablesService {
         private qrCodeService: QrCodeService,
     ) { }
 
-    async create(createTableDto: CreateTableDto): Promise<TableResponseDto> {
-        // Check if table number already exists
+    async create(createTableDto: CreateTableDto, restaurantId?: string): Promise<TableResponseDto> {
+        // Check if table number already exists for this restaurant
         const existingTable = await this.tableRepository.findOne({
-            where: { tableNumber: createTableDto.tableNumber, deletedAt: IsNull() }
+            where: {
+                tableNumber: createTableDto.tableNumber,
+                deletedAt: IsNull(),
+                ...(restaurantId ? { restaurantId } : {})
+            }
         });
 
         if (existingTable) {
@@ -27,6 +31,7 @@ export class TablesService {
 
         const table = this.tableRepository.create({
             ...createTableDto,
+            ...(restaurantId ? { restaurantId } : {}),
             status: createTableDto.status || TableStatus.AVAILABLE,
             capacity: createTableDto.capacity || 4
         });
@@ -56,9 +61,13 @@ export class TablesService {
         return this.mapToResponseDto(table);
     }
 
-    async findByTableNumber(tableNumber: number): Promise<TableResponseDto> {
+    async findByTableNumber(tableNumber: number, restaurantId?: string): Promise<TableResponseDto> {
         const table = await this.tableRepository.findOne({
-            where: { tableNumber, deletedAt: IsNull() }
+            where: {
+                tableNumber,
+                deletedAt: IsNull(),
+                ...(restaurantId ? { restaurantId } : {})
+            }
         });
 
         if (!table) {
@@ -68,7 +77,7 @@ export class TablesService {
         return this.mapToResponseDto(table);
     }
 
-    async update(id: string, updateTableDto: UpdateTableDto): Promise<TableResponseDto> {
+    async update(id: string, updateTableDto: UpdateTableDto, restaurantId?: string): Promise<TableResponseDto> {
         const table = await this.tableRepository.findOne({
             where: { id, deletedAt: IsNull() }
         });
@@ -80,7 +89,11 @@ export class TablesService {
         // Check if new table number conflicts with existing table
         if (updateTableDto.tableNumber && updateTableDto.tableNumber !== table.tableNumber) {
             const existingTable = await this.tableRepository.findOne({
-                where: { tableNumber: updateTableDto.tableNumber, deletedAt: IsNull() }
+                where: {
+                    tableNumber: updateTableDto.tableNumber,
+                    deletedAt: IsNull(),
+                    ...(restaurantId ? { restaurantId } : {})
+                }
             });
 
             if (existingTable) {
@@ -107,17 +120,22 @@ export class TablesService {
         return { message: 'Table deleted successfully' };
     }
 
-    async generateQrCodes(generateQrCodesDto: GenerateQrCodesDto): Promise<{
+    async generateQrCodes(generateQrCodesDto: GenerateQrCodesDto, restaurantId?: string): Promise<{
         message: string;
         tables: TableResponseDto[];
     }> {
         const { baseUrl, restaurantName, count } = generateQrCodesDto;
 
         // Clear existing QR codes and table records
-        await this.clearExistingQrCodes();
+        await this.clearExistingQrCodes(restaurantId);
 
         // Generate QR codes for multiple tables
-        const qrCodeResults = await this.qrCodeService.generateMultipleQrCodes(count, baseUrl, restaurantName);
+        const qrCodeResults = await this.qrCodeService.generateMultipleQrCodes(
+            count,
+            baseUrl,
+            restaurantName,
+            restaurantId
+        );
 
         const createdTables: Table[] = [];
 
@@ -130,6 +148,7 @@ export class TablesService {
                 qrCodeImagePath: qrResult.qrCodeImagePath,
                 orderUrl: qrResult.orderUrl,
                 qrUuid: qrResult.qrUuid,
+                ...(restaurantId ? { restaurantId } : {}),
                 status: TableStatus.AVAILABLE,
                 capacity: 4,
                 isActive: true
@@ -145,9 +164,18 @@ export class TablesService {
         };
     }
 
-    async generateQrCodeForTable(tableNumber: number, baseUrl: string, restaurantName: string): Promise<TableResponseDto> {
+    async generateQrCodeForTable(
+        tableNumber: number,
+        baseUrl: string,
+        restaurantName: string,
+        restaurantId?: string
+    ): Promise<TableResponseDto> {
         const table = await this.tableRepository.findOne({
-            where: { tableNumber, deletedAt: IsNull() }
+            where: {
+                tableNumber,
+                deletedAt: IsNull(),
+                ...(restaurantId ? { restaurantId } : {})
+            }
         });
 
         if (!table) {
@@ -155,7 +183,12 @@ export class TablesService {
         }
 
         // Generate QR code for this table
-        const qrResult = await this.qrCodeService.generateQrCodeForTable(tableNumber, baseUrl, restaurantName);
+        const qrResult = await this.qrCodeService.generateQrCodeForTable(
+            tableNumber,
+            baseUrl,
+            restaurantName,
+            restaurantId
+        );
 
         // Update table with QR code info
         table.qrCodeUrl = qrResult.qrCodeUrl;
@@ -182,7 +215,30 @@ export class TablesService {
         return this.mapToResponseDto(updatedTable);
     }
 
-    private async clearExistingQrCodes(): Promise<void> {
+    private async clearExistingQrCodes(restaurantId?: string): Promise<void> {
+        if (restaurantId) {
+            const tables = await this.tableRepository.find({
+                where: { restaurantId },
+                withDeleted: true,
+            });
+
+            const qrCodeDir = path.join(process.cwd(), 'public', 'upload', 'qr-codes');
+            for (const table of tables) {
+                if (!table.qrUuid) continue;
+                const filePath = path.join(qrCodeDir, `qr-${table.qrUuid}.png`);
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            }
+
+            await this.tableRepository.createQueryBuilder()
+                .delete()
+                .from('tables')
+                .where('restaurantId = :restaurantId', { restaurantId })
+                .execute();
+            return;
+        }
+
         // Delete existing QR code image files
         const qrCodeDir = path.join(process.cwd(), 'public', 'upload', 'qr-codes');
         if (fs.existsSync(qrCodeDir)) {

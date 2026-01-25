@@ -99,6 +99,43 @@ export class UploadController {
         };
     }
 
+    @Post('restaurant-image')
+    @UseInterceptors(FileInterceptor('image'))
+    @ApiOperation({
+        summary: 'Upload restaurant image (logo/cover)',
+        description: 'Upload image for restaurant branding. Stored under restaurants folder.',
+    })
+    @ApiConsumes('multipart/form-data')
+    @ApiBody({
+        description: 'Form data with image file',
+        schema: {
+            type: 'object',
+            properties: {
+                image: {
+                    type: 'string',
+                    format: 'binary',
+                    description: 'Image file',
+                },
+            },
+            required: ['image'],
+        },
+    })
+    @ApiResponse({
+        status: 201,
+        description: 'Upload successful',
+    })
+    async uploadRestaurantImage(
+        @UploadedFile() file: Express.Multer.File
+    ): Promise<{ success: boolean; message: string; data: UploadResult }> {
+        const result = await this.uploadService.uploadFile(file, 'restaurants');
+
+        return {
+            success: true,
+            message: 'Upload ảnh thành công',
+            data: result,
+        };
+    }
+
     @Delete('delete')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Xóa ảnh' })
@@ -180,7 +217,7 @@ export class UploadController {
         @Param('filename') filename: string,
         @Res() res: Response
     ) {
-        const allowedFolders = ['temp', 'products', 'categories', 'orders'];
+        const allowedFolders = ['temp', 'products', 'categories', 'orders', 'restaurants'];
         if (!allowedFolders.includes(folder)) {
             return res.status(400).json({
                 message: 'Folder không hợp lệ',
@@ -191,7 +228,6 @@ export class UploadController {
 
         // Serve ảnh từ thư mục uploads
         const imagePath = path.join(process.cwd(), 'public', 'upload', folder, filename);
-        console.log(imagePath);
         if (!fs.existsSync(imagePath)) {
             return res.status(404).json({
                 message: 'Image not found',

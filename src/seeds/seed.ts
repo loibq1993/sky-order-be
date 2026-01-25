@@ -6,7 +6,6 @@ export default async function seed(dataSource: DataSource): Promise<void> {
     const categoryRepository = dataSource.getRepository(Category);
     const productRepository = dataSource.getRepository(Product);
 
-    console.log('Starting database seeding...');
 
     // All categories from app.service.ts - removed hardcoded IDs since entity uses auto-generated UUIDs
     const categories = [
@@ -111,11 +110,9 @@ export default async function seed(dataSource: DataSource): Promise<void> {
         if (!existingCategory) {
             const category = categoryRepository.create(categoryData);
             const savedCategory = await categoryRepository.save(category);
-            console.log(`Created category: ${category.name}`);
             // Store the auto-generated ID for product seeding
             categoryIdMap.set(categoryData.name, savedCategory.id);
         } else {
-            console.log(`Category already exists: ${existingCategory.name}`);
             // Store the existing ID for product seeding
             categoryIdMap.set(categoryData.name, existingCategory.id);
         }
@@ -1243,14 +1240,10 @@ export default async function seed(dataSource: DataSource): Promise<void> {
                 };
                 const product = productRepository.create(productToSave);
                 await productRepository.save(product);
-                console.log(`Created product: ${product.name}`);
             } else {
-                console.log(`Category not found for product: ${productData.name}`);
             }
         } else {
-            console.log(`Product already exists: ${existingProduct.name}`);
         }
     }
 
-    console.log('Database seeding completed!');
 } 

@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import * as path from 'path';
 import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 export interface UploadResult {
     filename: string;
@@ -14,13 +15,46 @@ export interface UploadResult {
 
 @Injectable()
 export class UploadService {
-    private readonly allowedFolders = ['temp', 'products', 'categories', 'orders'];
+    private readonly allowedFolders = ['temp', 'products', 'categories', 'orders', 'restaurants'];
     private readonly allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
     private readonly maxFileSize = 5 * 1024 * 1024; // 5MB
+    private s3Client: S3Client | null = null;
 
     constructor() {
         // Tự động tạo các folder cần thiết khi khởi tạo service
         this.ensureAllFoldersExist();
+    }
+
+    private isS3Enabled(): boolean {
+        return !!(
+            process.env.AWS_ACCESS_KEY_ID &&
+            process.env.AWS_SECRET_ACCESS_KEY &&
+            process.env.AWS_REGION &&
+            process.env.AWS_S3_BUCKET
+        );
+    }
+
+    private getS3Client(): S3Client {
+        if (!this.s3Client) {
+            this.s3Client = new S3Client({
+                region: process.env.AWS_REGION,
+                credentials: {
+                    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+                    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+                },
+            });
+        }
+        return this.s3Client;
+    }
+
+    private buildS3Url(key: string): string {
+        const publicBase = process.env.AWS_S3_PUBLIC_URL;
+        if (publicBase) {
+            return `${publicBase.replace(/\/$/, '')}/${key}`;
+        }
+        const bucket = process.env.AWS_S3_BUCKET;
+        const region = process.env.AWS_REGION;
+        return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
     }
 
     // Tạo tên file unique theo timestamp + tên gốc
@@ -84,8 +118,37 @@ export class UploadService {
         // Đảm bảo tất cả folder tồn tại
         this.ensureAllFoldersExist();
 
-        const uploadPath = this.getUploadPath(folder);
         const filename = this.generateUniqueFilename(file.originalname);
+
+        if (this.isS3Enabled()) {
+            const key = `${folder}/${filename}`;
+            const client = this.getS3Client();
+            const body = file.buffer ? file.buffer : fs.createReadStream(file.path);
+            const acl = process.env.AWS_S3_ACL || 'public-read';
+
+            await client.send(new PutObjectCommand({
+                Bucket: process.env.AWS_S3_BUCKET,
+                Key: key,
+                Body: body,
+                ContentType: file.mimetype,
+                ACL: acl as any,
+            }));
+
+            if (file.path && fs.existsSync(file.path)) {
+                fs.unlinkSync(file.path);
+            }
+
+            return {
+                filename,
+                originalName: file.originalname,
+                size: file.size,
+                mimetype: file.mimetype,
+                url: this.buildS3Url(key),
+                path: key,
+            };
+        }
+
+        const uploadPath = this.getUploadPath(folder);
         const filePath = path.join(uploadPath, filename);
 
         // Di chuyển file từ temp sang folder đích

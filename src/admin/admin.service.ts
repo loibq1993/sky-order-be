@@ -7,6 +7,7 @@ import { Category } from '../entities/category.entity';
 import { Product } from '../entities/product.entity';
 import { Order } from '../entities/order.entity';
 import { Table } from '../entities/table.entity';
+import { getRootDomain, slugify } from '../utils/domain';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -31,6 +32,17 @@ export class AdminService {
 
   // Restaurant Management
   async createRestaurant(createRestaurantDto: CreateRestaurantDto): Promise<Restaurant> {
+    const existingRestaurant = await this.restaurantRepository.findOne({
+      where: { name: createRestaurantDto.name },
+    });
+    if (existingRestaurant) {
+      throw new BadRequestException('Restaurant name already exists');
+    }
+
+    if (!createRestaurantDto.customDomain) {
+      createRestaurantDto.customDomain = await this.generateUniqueSubdomain(createRestaurantDto.name);
+    }
+
     const restaurant = this.restaurantRepository.create(createRestaurantDto);
     return this.restaurantRepository.save(restaurant);
   }
@@ -75,11 +87,48 @@ export class AdminService {
     return restaurant;
   }
 
+  async findRestaurantPublicById(id: string): Promise<Restaurant> {
+    const restaurant = await this.restaurantRepository.findOne({
+      where: { id, deletedAt: IsNull() },
+    });
+
+    if (!restaurant) {
+      throw new NotFoundException('Restaurant not found');
+    }
+
+    return restaurant;
+  }
+
+  async findRestaurantByDomain(domain: string): Promise<Restaurant | null> {
+    const restaurant = await this.restaurantRepository.findOne({
+      where: { customDomain: domain, deletedAt: IsNull() },
+    });
+
+    return restaurant || null;
+  }
+
   async updateRestaurant(id: string, updateRestaurantDto: UpdateRestaurantDto): Promise<Restaurant> {
     const restaurant = await this.findRestaurantById(id);
     
     Object.assign(restaurant, updateRestaurantDto);
     return this.restaurantRepository.save(restaurant);
+  }
+
+  private async generateUniqueSubdomain(name: string): Promise<string | undefined> {
+    const rootDomain = getRootDomain();
+    if (!rootDomain) {
+      return undefined;
+    }
+    const base = slugify(name || 'restaurant');
+    let candidate = `${base}.${rootDomain}`;
+    let counter = 1;
+
+    while (await this.restaurantRepository.findOne({ where: { customDomain: candidate } })) {
+      counter += 1;
+      candidate = `${base}-${counter}.${rootDomain}`;
+    }
+
+    return candidate;
   }
 
   async deleteRestaurant(id: string): Promise<void> {
@@ -120,7 +169,10 @@ export class AdminService {
   async createUser(createUserDto: CreateUserDto): Promise<User> {
     // Check if username already exists
     const existingUser = await this.userRepository.findOne({
-      where: { username: createUserDto.username },
+      where: {
+        username: createUserDto.username,
+        restaurantId: createUserDto.restaurantId ?? IsNull(),
+      },
     });
 
     if (existingUser) {

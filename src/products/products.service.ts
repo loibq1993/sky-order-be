@@ -47,7 +47,6 @@ export class ProductsService {
         // Move image from temp to products folder if provided
         if (tempImageFilename) {
             try {
-                console.log('Original tempImageFilename (create):', tempImageFilename);
                 // Extract just the filename from the path
                 const filename = tempImageFilename.includes('/')
                     ? tempImageFilename.split('/').pop() || tempImageFilename
@@ -66,12 +65,13 @@ export class ProductsService {
     }
 
     // Get all visible and in-stock products
-    async findAll(): Promise<ProductResponseDto[]> {
+    async findAll(restaurantId?: string): Promise<ProductResponseDto[]> {
         const products = await this.productRepository.find({
             where: {
                 deletedAt: IsNull(),
                 available: true,
-                visible: true
+                visible: true,
+                ...(restaurantId ? { restaurantId } : {})
             },
             relations: ['categoryRelation'],
             order: { createdAt: 'ASC' },
@@ -87,7 +87,12 @@ export class ProductsService {
     }
 
     // Get all visible and in-stock products with pagination and category filter
-    async findAllPaginated(page: number = 1, limit: number = 10, categoryId?: string): Promise<{
+    async findAllPaginated(
+        page: number = 1,
+        limit: number = 10,
+        categoryId?: string,
+        restaurantId?: string
+    ): Promise<{
         products: ProductResponseDto[];
         total: number;
         page: number;
@@ -104,6 +109,9 @@ export class ProductsService {
 
         if (categoryId) {
             whereCondition.categoryId = categoryId;
+        }
+        if (restaurantId) {
+            whereCondition.restaurantId = restaurantId;
         }
 
         const [products, total] = await this.productRepository.findAndCount({
@@ -140,13 +148,14 @@ export class ProductsService {
 
     // Get visible and in-stock products by category
     // Get products by category (client - only visible and available)
-    async findByCategory(categoryId: string): Promise<ProductResponseDto[]> {
+    async findByCategory(categoryId: string, restaurantId?: string): Promise<ProductResponseDto[]> {
         const products = await this.productRepository.find({
             where: {
                 categoryId,
                 deletedAt: IsNull(),
                 available: true,
-                visible: true
+                visible: true,
+                ...(restaurantId ? { restaurantId } : {})
             },
             relations: ['categoryRelation'],
             order: { createdAt: 'ASC' },
@@ -241,7 +250,6 @@ export class ProductsService {
 
         if (tempImageFilename) {
             try {
-                console.log('Original tempImageFilename:', tempImageFilename);
                 const filename = tempImageFilename.includes('/')
                     ? tempImageFilename.split('/').pop() || tempImageFilename
                     : tempImageFilename;
@@ -363,8 +371,8 @@ export class ProductsService {
     }
 
     // Search products (client - only visible and available)
-    async search(query: string): Promise<ProductResponseDto[]> {
-        const products = await this.productRepository
+    async search(query: string, restaurantId?: string): Promise<ProductResponseDto[]> {
+        const queryBuilder = this.productRepository
             .createQueryBuilder('product')
             .leftJoinAndSelect('product.categoryRelation', 'category')
             .where('product.deletedAt IS NULL')
@@ -373,7 +381,13 @@ export class ProductsService {
             .andWhere(
                 '(product.name LIKE :query OR product.nameKo LIKE :query OR product.description LIKE :query)',
                 { query: `%${query}%` }
-            )
+            );
+
+        if (restaurantId) {
+            queryBuilder.andWhere('product.restaurantId = :restaurantId', { restaurantId });
+        }
+
+        const products = await queryBuilder
             .orderBy('product.createdAt', 'ASC')
             .getMany();
 
@@ -406,12 +420,13 @@ export class ProductsService {
     }
 
     // Get popular products (client - only visible and available)
-    async getPopular(limit: number = 10): Promise<ProductResponseDto[]> {
+    async getPopular(limit: number = 10, restaurantId?: string): Promise<ProductResponseDto[]> {
         const products = await this.productRepository.find({
             where: {
                 deletedAt: IsNull(),
                 available: true,
-                visible: true
+                visible: true,
+                ...(restaurantId ? { restaurantId } : {})
             },
             relations: ['categoryRelation'],
             order: { sales: 'DESC', createdAt: 'ASC' },

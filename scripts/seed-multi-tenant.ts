@@ -37,18 +37,15 @@ async function runSeed() {
 
   try {
     await dataSource.initialize();
-    console.log('📦 Database connection established');
 
     const seed = new MultiTenantSeed(dataSource);
     await seed.run();
 
-    console.log('✅ Multi-tenant seeding completed successfully');
   } catch (error) {
     console.error('❌ Error during seeding:', error);
     process.exit(1);
   } finally {
     await dataSource.destroy();
-    console.log('🔌 Database connection closed');
   }
 }
 

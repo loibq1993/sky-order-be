@@ -173,7 +173,6 @@ export class OrdersService {
         const order = await this.orderRepository.findOne({
             where: { id }
         });
-        console.log(order)
         if (!order) {
             throw new NotFoundException(`Order with ID ${id} not found`);
         }

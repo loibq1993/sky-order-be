@@ -19,8 +19,11 @@ export const RestaurantId = createParamDecorator(
       return user.restaurantId;
     }
     
-    // For client endpoints, get from X-Restaurant-ID header
-    const restaurantId = request.headers['x-restaurant-id'] || request.headers['X-Restaurant-ID'];
+    // For client endpoints, allow query param or X-Restaurant-ID header
+    const restaurantId =
+      request.query?.restaurantId ||
+      request.headers['x-restaurant-id'] ||
+      request.headers['X-Restaurant-ID'];
     
     if (!restaurantId) {
       throw new UnauthorizedException('Restaurant context is required');

@@ -13,31 +13,14 @@ export class MultiTenantSeed {
 
     // Create restaurants
     const restaurants = await this.createRestaurants();
-    console.log(`✅ Created ${restaurants.length} restaurants`);
 
     // Create users for each restaurant
     const users = await this.createUsers(restaurants);
-    console.log(`✅ Created ${users.length} users`);
 
     // Skip auto-seeding categories, products, and tables for new restaurants
 
-    console.log('\n🎉 Multi-tenant seed completed successfully!');
-    console.log('\n📋 Login Credentials:');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🔹 Superadmin (controls every restaurant):');
-    console.log('   Username: superadmin');
-    console.log('   Password: admin123');
-    console.log('   Role: super_admin');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     if (restaurants.length > 0) {
-      console.log('🔹 Admin (controls single restaurant):');
-      console.log('   Username: admin');
-      console.log('   Password: admin123');
-      console.log('   Role: restaurant_owner');
-      console.log(`   Restaurant: ${restaurants[0].name}`);
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     }
-    console.log('');
   }
 
   private async createRestaurants(): Promise<Restaurant[]> {
@@ -49,7 +32,6 @@ export class MultiTenantSeed {
     });
 
     if (existingRestaurant) {
-      console.log('⚠️  Restaurant already exists, skipping creation');
       return [existingRestaurant];
     }
 
@@ -102,9 +84,7 @@ export class MultiTenantSeed {
       });
       const savedSuperAdmin = await userRepository.save(superAdmin);
       users.push(savedSuperAdmin);
-      console.log('✅ Created superadmin account (username: superadmin, password: admin123)');
     } else {
-      console.log('⚠️  Superadmin already exists, skipping creation');
       users.push(existingSuperAdmin);
     }
 
@@ -129,9 +109,7 @@ export class MultiTenantSeed {
         });
         const savedAdmin = await userRepository.save(admin);
         users.push(savedAdmin);
-        console.log(`✅ Created admin account (username: admin, password: admin123, restaurant: ${restaurant.name})`);
       } else {
-        console.log('⚠️  Admin already exists, skipping creation');
         users.push(existingAdmin);
       }
     }

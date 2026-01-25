@@ -1,10 +1,12 @@
 import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { IsNull } from 'typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../entities/user.entity';
 import { Restaurant } from '../entities/restaurant.entity';
+import { getRootDomain, slugify } from '../utils/domain';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -70,7 +72,10 @@ export class AuthService {
   async register(registerDto: RegisterDto) {
     // Check if username already exists
     const existingUser = await this.userRepository.findOne({
-      where: { username: registerDto.username },
+      where: {
+        username: registerDto.username,
+        restaurantId: registerDto.restaurantId ?? IsNull(),
+      },
     });
 
     if (existingUser) {
@@ -114,8 +119,39 @@ export class AuthService {
 
   async createRestaurantOwner(restaurantData: any, userData: any) {
     // Create restaurant first
+    const existingRestaurant = await this.restaurantRepository.findOne({
+      where: { name: restaurantData.name },
+    });
+    if (existingRestaurant) {
+      throw new BadRequestException('Restaurant name already exists');
+    }
+
+    if (!restaurantData.customDomain) {
+      restaurantData.customDomain = await this.generateUniqueSubdomain(restaurantData.name);
+    }
+
     const restaurant = this.restaurantRepository.create(restaurantData);
     const savedRestaurant = await this.restaurantRepository.save(restaurant) as unknown as Restaurant;
+
+    // Ensure username is unique within this restaurant
+    const existingOwner = await this.userRepository.findOne({
+      where: {
+        username: userData.username,
+        restaurantId: savedRestaurant.id,
+      },
+    });
+    if (existingOwner) {
+      throw new BadRequestException('Username already exists');
+    }
+
+    if (userData.email) {
+      const existingEmail = await this.userRepository.findOne({
+        where: { email: userData.email },
+      });
+      if (existingEmail) {
+        throw new BadRequestException('Email already exists');
+      }
+    }
 
     // Create restaurant owner
     const saltRounds = 10;
@@ -161,6 +197,23 @@ export class AuthService {
 
     const { passwordHash, ...result } = user;
     return result;
+  }
+
+  private async generateUniqueSubdomain(name: string): Promise<string | undefined> {
+    const rootDomain = getRootDomain();
+    if (!rootDomain) {
+      return undefined;
+    }
+    const base = slugify(name || 'restaurant');
+    let candidate = `${base}.${rootDomain}`;
+    let counter = 1;
+
+    while (await this.restaurantRepository.findOne({ where: { customDomain: candidate } })) {
+      counter += 1;
+      candidate = `${base}-${counter}.${rootDomain}`;
+    }
+
+    return candidate;
   }
 
   async changePassword(userId: string, oldPassword: string, newPassword: string) {

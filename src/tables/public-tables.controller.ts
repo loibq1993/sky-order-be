@@ -3,6 +3,7 @@ import {
     Get,
     Param,
     Res,
+    Query,
     UseInterceptors,
     ClassSerializerInterceptor,
     NotFoundException
@@ -33,9 +34,13 @@ export class PublicTablesController {
     @ApiParam({ name: 'tableNumber', description: 'Table number' })
     @ApiResponse({ status: 200, description: 'QR code image' })
     @ApiResponse({ status: 404, description: 'QR code not found' })
-    async serveQrCode(@Param('tableNumber') tableNumber: string, @Res() res: Response) {
+    async serveQrCode(
+        @Param('tableNumber') tableNumber: string,
+        @Query('restaurantId') restaurantId: string | undefined,
+        @Res() res: Response
+    ) {
         // Find table by table number to get the qrUuid
-        const table = await this.tablesService.findByTableNumber(parseInt(tableNumber, 10));
+        const table = await this.tablesService.findByTableNumber(parseInt(tableNumber, 10), restaurantId);
 
         if (!table.qrUuid) {
             return res.status(404).json({
@@ -64,8 +69,11 @@ export class PublicTablesController {
     @ApiParam({ name: 'tableNumber', description: 'Table number' })
     @ApiResponse({ status: 200, description: 'Active order found' })
     @ApiResponse({ status: 404, description: 'No active order found' })
-    async getTableOrder(@Param('tableNumber') tableNumber: string) {
-        const table = await this.tablesService.findByTableNumber(parseInt(tableNumber, 10));
+    async getTableOrder(
+        @Param('tableNumber') tableNumber: string,
+        @Query('restaurantId') restaurantId: string | undefined
+    ) {
+        const table = await this.tablesService.findByTableNumber(parseInt(tableNumber, 10), restaurantId);
 
         if (!table.id) {
             throw new NotFoundException(`Table number ${tableNumber} not found`);

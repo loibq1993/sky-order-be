@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminController } from './admin.controller';
+import { ClientRestaurantsController } from './client-restaurants.controller';
+import { RestaurantSettingsController } from './restaurant-settings.controller';
 import { AdminService } from './admin.service';
 import { Restaurant } from '../entities/restaurant.entity';
 import { User } from '../entities/user.entity';
@@ -20,7 +22,7 @@ import { Table } from '../entities/table.entity';
       Table,
     ]),
   ],
-  controllers: [AdminController],
+  controllers: [AdminController, RestaurantSettingsController, ClientRestaurantsController],
   providers: [AdminService],
   exports: [AdminService],
 })

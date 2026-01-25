@@ -39,7 +39,12 @@ export class QrCodeService {
         }
     }
 
-    async generateQrCodeForTable(tableNumber: number, baseUrl: string, restaurantName: string): Promise<{
+    async generateQrCodeForTable(
+        tableNumber: number,
+        baseUrl: string,
+        restaurantName: string,
+        restaurantId?: string
+    ): Promise<{
         qrCodeUrl: string;
         qrCodeImagePath: string;
         orderUrl: string;
@@ -48,11 +53,19 @@ export class QrCodeService {
         // Generate UUID for QR code
         const qrUuid = require('uuid').v4();
 
-        // Ensure baseUrl starts with https
-        const secureBaseUrl = baseUrl.startsWith('https://') ? baseUrl : `https://${baseUrl}`;
+        // Ensure baseUrl has a protocol (https in production, http in dev)
+        const defaultProtocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+        const secureBaseUrl = baseUrl.includes('://') ? baseUrl : `${defaultProtocol}://${baseUrl}`;
 
         // Create order URL for the table (redirect to frontend) - using tableNumber
-        const orderUrl = `${secureBaseUrl}?table=${tableNumber}`;
+        const baseOrderUrl = new URL(secureBaseUrl);
+        if (restaurantId) {
+            const trimmedPath = baseOrderUrl.pathname.replace(/\/$/, '');
+            baseOrderUrl.pathname = `${trimmedPath}/${restaurantId}`;
+        }
+        baseOrderUrl.search = '';
+        baseOrderUrl.searchParams.set('table', tableNumber.toString());
+        const orderUrl = baseOrderUrl.toString();
 
         // Create filename for QR code using UUID
         const filename = `qr-${qrUuid}.png`;
@@ -65,8 +78,12 @@ export class QrCodeService {
 
         // URL to access QR code (public API endpoint) - use tableId instead of qrUuid
         const backendUrl = process.env.API_BASE_URL || baseUrl;
-        const secureBackendUrl = backendUrl.startsWith('https://') ? backendUrl : `https://${backendUrl}`;
-        const qrCodeUrl = `${secureBackendUrl}/api/tables/qr/${tableNumber}`;
+        const secureBackendUrl = backendUrl.includes('://')
+            ? backendUrl
+            : `${defaultProtocol}://${backendUrl}`;
+        const qrCodeUrl = restaurantId
+            ? `${secureBackendUrl}/api/tables/qr/${tableNumber}?restaurantId=${restaurantId}`
+            : `${secureBackendUrl}/api/tables/qr/${tableNumber}`;
 
         return {
             qrCodeUrl,
@@ -79,7 +96,8 @@ export class QrCodeService {
     async generateMultipleQrCodes(
         count: number,
         baseUrl: string,
-        restaurantName: string
+        restaurantName: string,
+        restaurantId?: string
     ): Promise<Array<{
         tableNumber: number;
         qrCodeUrl: string;
@@ -97,7 +115,7 @@ export class QrCodeService {
 
         for (let i = 1; i <= count; i++) {
             const tableNumber = i;
-            const result = await this.generateQrCodeForTable(tableNumber, baseUrl, restaurantName);
+            const result = await this.generateQrCodeForTable(tableNumber, baseUrl, restaurantName, restaurantId);
             results.push({
                 tableNumber,
                 ...result

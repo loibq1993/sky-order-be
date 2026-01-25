@@ -19,6 +19,7 @@ import {
     ApiBody
 } from '@nestjs/swagger';
 import { TablesService } from './tables.service';
+import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 import { CreateTableDto, UpdateTableDto, TableResponseDto, GenerateQrCodesDto, TableStatus } from './tables.dto';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -34,8 +35,11 @@ export class TablesController {
     @ApiBody({ type: CreateTableDto })
     @ApiResponse({ status: 201, description: 'Table created successfully', type: TableResponseDto })
     @ApiResponse({ status: 400, description: 'Bad request' })
-    async create(@Body() createTableDto: CreateTableDto): Promise<TableResponseDto> {
-        return this.tablesService.create(createTableDto);
+    async create(
+        @Body() createTableDto: CreateTableDto,
+        @RestaurantId() restaurantId?: string
+    ): Promise<TableResponseDto> {
+        return this.tablesService.create(createTableDto, restaurantId);
     }
 
     @Get()
@@ -59,8 +63,11 @@ export class TablesController {
     @ApiParam({ name: 'tableNumber', description: 'Table number' })
     @ApiResponse({ status: 200, description: 'Table found', type: TableResponseDto })
     @ApiResponse({ status: 404, description: 'Table not found' })
-    async findByTableNumber(@Param('tableNumber') tableNumber: string): Promise<TableResponseDto> {
-        return this.tablesService.findByTableNumber(parseInt(tableNumber, 10));
+    async findByTableNumber(
+        @Param('tableNumber') tableNumber: string,
+        @RestaurantId() restaurantId?: string
+    ): Promise<TableResponseDto> {
+        return this.tablesService.findByTableNumber(parseInt(tableNumber, 10), restaurantId);
     }
 
     @Patch(':id')
@@ -71,9 +78,10 @@ export class TablesController {
     @ApiResponse({ status: 404, description: 'Table not found' })
     async update(
         @Param('id') id: string,
-        @Body() updateTableDto: UpdateTableDto
+        @Body() updateTableDto: UpdateTableDto,
+        @RestaurantId() restaurantId?: string
     ): Promise<TableResponseDto> {
-        return this.tablesService.update(id, updateTableDto);
+        return this.tablesService.update(id, updateTableDto, restaurantId);
     }
 
     @Delete(':id')
@@ -91,11 +99,14 @@ export class TablesController {
     @ApiOperation({ summary: 'Generate QR codes for multiple tables' })
     @ApiBody({ type: GenerateQrCodesDto })
     @ApiResponse({ status: 200, description: 'QR codes generated successfully' })
-    async generateQrCodes(@Body() generateQrCodesDto: GenerateQrCodesDto): Promise<{
+    async generateQrCodes(
+        @Body() generateQrCodesDto: GenerateQrCodesDto,
+        @RestaurantId() restaurantId?: string
+    ): Promise<{
         message: string;
         tables: TableResponseDto[];
     }> {
-        return this.tablesService.generateQrCodes(generateQrCodesDto);
+        return this.tablesService.generateQrCodes(generateQrCodesDto, restaurantId);
     }
 
     @Post(':tableNumber/generate-qr')
@@ -121,12 +132,14 @@ export class TablesController {
     @ApiResponse({ status: 200, description: 'QR code generated successfully', type: TableResponseDto })
     async generateQrCodeForTable(
         @Param('tableNumber') tableNumber: string,
-        @Body() body: { baseUrl: string; restaurantName: string }
+        @Body() body: { baseUrl: string; restaurantName: string },
+        @RestaurantId() restaurantId?: string
     ): Promise<TableResponseDto> {
         return this.tablesService.generateQrCodeForTable(
             parseInt(tableNumber, 10),
             body.baseUrl,
-            body.restaurantName
+            body.restaurantName,
+            restaurantId
         );
     }
 

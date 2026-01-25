@@ -1,7 +1,8 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Restaurant } from './restaurant.entity';
 
 @Entity('tables')
+@Index('IDX_tables_restaurant_table_number', ['restaurantId', 'tableNumber'], { unique: true })
 export class Table {
     @PrimaryGeneratedColumn('uuid')
     id: string;
@@ -9,7 +10,7 @@ export class Table {
     @Column({ type: 'varchar', length: 100 })
     name: string; // Tên bàn: "Bàn 1", "Bàn 2", etc.
 
-    @Column({ type: 'int', unique: true })
+    @Column({ type: 'int' })
     tableNumber: number; // Số bàn: 1, 2, 3, etc.
 
     @Column({ type: 'varchar', length: 500, nullable: true })
