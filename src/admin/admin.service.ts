@@ -39,7 +39,12 @@ export class AdminService {
       throw new BadRequestException('Restaurant name already exists');
     }
 
-    if (!createRestaurantDto.customDomain) {
+    const domainFromWebsite = createRestaurantDto.website?.replace(/^https?:\/\//i, '').split('/')[0]?.trim();
+    if (createRestaurantDto.customDomain) {
+      // giữ nguyên nếu đã gửi customDomain
+    } else if (domainFromWebsite) {
+      createRestaurantDto.customDomain = domainFromWebsite;
+    } else {
       createRestaurantDto.customDomain = await this.generateUniqueSubdomain(createRestaurantDto.name);
     }
 
@@ -100,10 +105,14 @@ export class AdminService {
   }
 
   async findRestaurantByDomain(domain: string): Promise<Restaurant | null> {
-    const restaurant = await this.restaurantRepository.findOne({
+    let restaurant = await this.restaurantRepository.findOne({
       where: { customDomain: domain, deletedAt: IsNull() },
     });
-
+    if (!restaurant) {
+      restaurant = await this.restaurantRepository.findOne({
+        where: { website: domain, deletedAt: IsNull() },
+      });
+    }
     return restaurant || null;
   }
 

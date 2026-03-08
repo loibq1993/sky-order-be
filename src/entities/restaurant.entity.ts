@@ -22,10 +22,10 @@ export class Restaurant {
     @Column({ type: 'text', nullable: true })
     descriptionKo: string;
 
-    @Column({ type: 'longtext', nullable: true })
+    @Column({ type: 'text', nullable: true })
     logo: string;
 
-    @Column({ type: 'longtext', nullable: true })
+    @Column({ type: 'text', nullable: true })
     coverImage: string;
 
     @Column({ type: 'varchar', length: 200, nullable: true })

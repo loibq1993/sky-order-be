@@ -4,6 +4,7 @@ export class CreateMultiTenantTables1703123456000 implements MigrationInterface 
   name = 'CreateMultiTenantTables1703123456000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (queryRunner.connection.driver.options.type === 'postgres') return;
     // Create restaurants table
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS \`restaurants\` (
@@ -53,6 +54,7 @@ export class CreateMultiTenantTables1703123456000 implements MigrationInterface 
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    if (queryRunner.connection.driver.options.type === 'postgres') return;
     await queryRunner.query('DROP TABLE IF EXISTS `users`');
     await queryRunner.query('DROP TABLE IF EXISTS `restaurants`');
   }

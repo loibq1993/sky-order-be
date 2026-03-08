@@ -16,21 +16,16 @@ config();
 async function runSeed() {
   // Create DataSourceOptions directly from environment variables
   const dataSourceOptions: DataSourceOptions = {
-    type: 'mysql',
+    type: 'postgres',
     host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '3306', 10),
-    username: process.env.DB_USERNAME || 'root',
+    port: parseInt(process.env.DB_PORT || '5432', 10),
+    username: process.env.DB_USERNAME || 'postgres',
     password: process.env.DB_PASSWORD || 'your_password',
     database: process.env.DB_DATABASE || 'sky_order',
     entities: [Product, Category, Order, OrderItem, ProductCategory, Table, Restaurant, User],
     migrations: [join(__dirname, '..', 'src', 'migrations', '*.{ts,js}')],
     migrationsTableName: 'migrations',
     synchronize: false,
-    charset: 'utf8mb4',
-    timezone: '+00:00',
-    extra: {
-      charset: 'utf8mb4_unicode_ci',
-    },
   };
   
   const dataSource = new DataSource(dataSourceOptions);

@@ -10,7 +10,7 @@ import { User } from '../entities/user.entity';
 import { join } from 'path';
 
 export const getTypeOrmConfig = (configService: ConfigService): TypeOrmModuleOptions => ({
-    type: 'mysql',
+    type: 'postgres',
     host: configService.get<string>('app.database.host'),
     port: configService.get<number>('app.database.port'),
     username: configService.get<string>('app.database.username'),
@@ -21,9 +21,4 @@ export const getTypeOrmConfig = (configService: ConfigService): TypeOrmModuleOpt
     migrationsTableName: 'migrations',
     migrationsRun: true,
     synchronize: false,
-    charset: 'utf8mb4',
-    timezone: '+00:00',
-    extra: {
-        charset: 'utf8mb4_unicode_ci',
-    },
 }); 

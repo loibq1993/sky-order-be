@@ -1,0 +1,85 @@
+# Backend: NestJS API + PostgreSQL
+# Run from sky-order-be/: docker compose up -d
+# Env: copy .env.docker.example to .env
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 4500
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-sky_order_secret}
+      DB_DATABASE: ${DB_DATABASE:-sky_order}
+      JWT_SECRET: ${JWT_SECRET:-your_jwt_secret_key_change_in_production}
+      JWT_EXPIRES_IN: 24h
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:80,http://127.0.0.1:3000}
+      UPLOAD_PATH: ./uploads
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_public:/app/public
+    ports:
+      - "4500:4500"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sky-order-be
+
+  # One-off: migrations + seed superadmin. Usage: docker compose run --rm seed
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile.seed
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-sky_order_secret}
+      DB_DATABASE: ${DB_DATABASE:-sky_order}
+      SUPERADMIN_USERNAME: ${SUPERADMIN_USERNAME:-superadmin}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:-admin123}
+      SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-superadmin@skyorder.com}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sky-order-be
+
+  postgres:
+    image: postgres:16-alpine
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-sky_order_secret}
+      POSTGRES_DB: ${DB_DATABASE:-sky_order}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - sky-order-be
+
+volumes:
+  postgres_data:
+  backend_uploads:
+  backend_public:
+
+networks:
+  sky-order-be:
+    driver: bridge

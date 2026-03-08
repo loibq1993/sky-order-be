@@ -4,6 +4,7 @@ export class CreateCategoriesTable1700000000000 implements MigrationInterface {
     name = 'CreateCategoriesTable1700000000000';
 
     public async up(queryRunner: QueryRunner): Promise<void> {
+        if (queryRunner.connection.driver.options.type === 'postgres') return;
         // Create categories table
         await queryRunner.query(`
       CREATE TABLE \`categories\` (
@@ -25,6 +26,7 @@ export class CreateCategoriesTable1700000000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        if (queryRunner.connection.driver.options.type === 'postgres') return;
         await queryRunner.query(`DROP TABLE \`categories\``);
     }
 } 

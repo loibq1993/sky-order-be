@@ -2,6 +2,7 @@ import { MigrationInterface, QueryRunner, Table } from 'typeorm';
 
 export class CreateTablesTable1700000000005 implements MigrationInterface {
     public async up(queryRunner: QueryRunner): Promise<void> {
+        if (queryRunner.connection.driver.options.type === 'postgres') return;
         await queryRunner.createTable(
             new Table({
                 name: 'tables',
@@ -85,6 +86,7 @@ export class CreateTablesTable1700000000005 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        if (queryRunner.connection.driver.options.type === 'postgres') return;
         await queryRunner.dropTable('tables');
     }
 } 

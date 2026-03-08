@@ -4,6 +4,7 @@ export class AddTableInfoToOrders1700000000006 implements MigrationInterface {
     name = 'AddTableInfoToOrders1700000000006'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
+        if (queryRunner.connection.driver.options.type === 'postgres') return;
         // Check if tableId column exists before adding it
         const tableIdExists = await queryRunner.hasColumn('orders', 'tableId');
         if (!tableIdExists) {
@@ -19,6 +20,7 @@ export class AddTableInfoToOrders1700000000006 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        if (queryRunner.connection.driver.options.type === 'postgres') return;
         await queryRunner.query(`ALTER TABLE \`orders\` DROP COLUMN \`tableNumber\``);
         await queryRunner.query(`ALTER TABLE \`orders\` DROP COLUMN \`tableId\``);
     }

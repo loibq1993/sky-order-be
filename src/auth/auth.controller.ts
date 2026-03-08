@@ -13,12 +13,22 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
-  @ApiOperation({ summary: 'User login' })
+  @ApiOperation({ summary: 'User login (admin/staff)' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async login(@Body() loginDto: LoginDto, @Request() req) {
     loginDto.ip = req.ip;
     return this.authService.login(loginDto);
+  }
+
+  @Post('customer/login')
+  @ApiOperation({ summary: 'Customer login only (client app); rejects staff/super_admin' })
+  @ApiResponse({ status: 200, description: 'Login successful' })
+  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  @ApiResponse({ status: 403, description: 'Not a customer; use admin login' })
+  async loginAsCustomer(@Body() loginDto: LoginDto, @Request() req) {
+    loginDto.ip = req.ip;
+    return this.authService.loginAsCustomer(loginDto);
   }
 
   @Post('register')

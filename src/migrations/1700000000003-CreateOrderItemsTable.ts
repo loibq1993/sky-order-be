@@ -4,6 +4,7 @@ export class CreateOrderItemsTable1700000000003 implements MigrationInterface {
     name = 'CreateOrderItemsTable1700000000003';
 
     public async up(queryRunner: QueryRunner): Promise<void> {
+        if (queryRunner.connection.driver.options.type === 'postgres') return;
         // Create order_items table
         await queryRunner.query(`
             CREATE TABLE \`order_items\` (
@@ -27,6 +28,7 @@ export class CreateOrderItemsTable1700000000003 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        if (queryRunner.connection.driver.options.type === 'postgres') return;
         await queryRunner.query(`DROP TABLE \`order_items\``);
     }
 } 

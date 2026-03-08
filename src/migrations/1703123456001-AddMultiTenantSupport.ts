@@ -4,6 +4,7 @@ export class AddMultiTenantSupport1703123456001 implements MigrationInterface {
   name = 'AddMultiTenantSupport1703123456001';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    if (queryRunner.connection.driver.options.type === 'postgres') return;
     // Add restaurantId columns to existing tables
     try {
       await queryRunner.query('ALTER TABLE `categories` ADD COLUMN `restaurantId` VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
@@ -109,6 +110,7 @@ export class AddMultiTenantSupport1703123456001 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    if (queryRunner.connection.driver.options.type === 'postgres') return;
     // Drop indexes
     try {
       await queryRunner.query('DROP INDEX `idx_users_restaurant_id` ON `users`');

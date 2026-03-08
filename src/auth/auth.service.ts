@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull } from 'typeorm';
 import { Repository } from 'typeorm';
@@ -31,6 +31,20 @@ export class AuthService {
       return result;
     }
     return null;
+  }
+
+  /**
+   * Customer-only login (e.g. client app). Rejects super_admin and staff roles.
+   */
+  async loginAsCustomer(loginDto: LoginDto) {
+    const user = await this.validateUser(loginDto.username, loginDto.password);
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    if (user.role !== 'customer') {
+      throw new ForbiddenException('Use the admin login page for staff accounts');
+    }
+    return this.login(loginDto);
   }
 
   async login(loginDto: LoginDto) {
@@ -126,7 +140,13 @@ export class AuthService {
       throw new BadRequestException('Restaurant name already exists');
     }
 
-    if (!restaurantData.customDomain) {
+    // Dùng website làm domain riêng tenant nếu có (hostname, không protocol/path); không thì dùng customDomain hoặc generate subdomain
+    const domainFromWebsite = restaurantData.website?.replace(/^https?:\/\//i, '').split('/')[0]?.trim();
+    if (restaurantData.customDomain) {
+      // giữ nguyên nếu đã gửi customDomain
+    } else if (domainFromWebsite) {
+      restaurantData.customDomain = domainFromWebsite;
+    } else {
       restaurantData.customDomain = await this.generateUniqueSubdomain(restaurantData.name);
     }
 

@@ -4,6 +4,7 @@ export class CreateProductCategoriesTable1700000000004 implements MigrationInter
     name = 'CreateProductCategoriesTable1700000000004';
 
     public async up(queryRunner: QueryRunner): Promise<void> {
+        if (queryRunner.connection.driver.options.type === 'postgres') return;
         // Create product_categories junction table
         await queryRunner.query(`
             CREATE TABLE \`product_categories\` (
@@ -23,6 +24,7 @@ export class CreateProductCategoriesTable1700000000004 implements MigrationInter
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        if (queryRunner.connection.driver.options.type === 'postgres') return;
         await queryRunner.query(`DROP TABLE \`product_categories\``);
     }
 } 
