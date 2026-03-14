@@ -27,17 +27,34 @@ async function bootstrap() {
   }));
 
   // Enable CORS for frontend communication
-  const corsOrigin = configService.get('app.cors.origin') || [];
+  const corsOriginList = configService.get('app.cors.origin') || [];
   const corsMethods = configService.get('app.cors.methods') || ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'];
-  const corsHeaders = configService.get('app.cors.allowedHeaders') || ['Content-Type', 'Authorization', 'Accept', 'X-Restaurant-ID', 'x-restaurant-id'];
+  const configuredHeaders = configService.get('app.cors.allowedHeaders') || [];
+  const requiredHeaders = ['Content-Type', 'Authorization', 'Accept', 'X-Restaurant-ID', 'x-restaurant-id'];
+  const corsHeaders = [...new Set([...requiredHeaders, ...configuredHeaders])];
   const corsCredentials = configService.get('app.cors.credentials') !== undefined ? configService.get('app.cors.credentials') : true;
 
+  // CORS origin: exact list, wildcards (http://localhost:*), or CORS_ORIGIN=* to allow all (server).
+  const allowAllOrigins = corsOriginList.includes('*');
+  const originFn = (origin: string | undefined, callback: (err: Error | null, allow?: boolean | string) => void) => {
+    if (!origin) return callback(null, true); // No Origin header
+    if (allowAllOrigins || corsOriginList.length === 0) return callback(null, origin);
+    const allowed = corsOriginList.some((allowedOrigin: string) => {
+      if (allowedOrigin.includes('*')) {
+        const prefix = allowedOrigin.replace(/\*$/, '');
+        return origin === prefix || origin.startsWith(prefix);
+      }
+      return origin === allowedOrigin;
+    });
+    callback(null, allowed ? origin : false);
+  };
+
   app.enableCors({
-    origin: corsOrigin.length > 0 ? corsOrigin : true, // Allow all origins in development if not configured
+    origin: originFn,
     methods: corsMethods,
     allowedHeaders: corsHeaders,
     credentials: corsCredentials,
-    exposedHeaders: ['X-Restaurant-ID', 'x-restaurant-id'], // Expose custom headers
+    exposedHeaders: ['X-Restaurant-ID', 'x-restaurant-id'],
   });
 
   // Setup Swagger documentation

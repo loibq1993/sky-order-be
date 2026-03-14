@@ -61,14 +61,16 @@ export default registerAs('app', () => ({
     cors: {
         origin: process.env.CORS_ORIGIN
             ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
-            : ['http://localhost:3000', 'http://localhost:3001'], // Default for development
+            : process.env.NODE_ENV === 'production'
+                ? ['*'] // Production: allow all origins if not set (set CORS_ORIGIN to restrict)
+                : ['http://localhost:3000', 'http://localhost:3001'],
         methods: process.env.CORS_METHODS
             ? process.env.CORS_METHODS.split(',').map(method => method.trim())
             : ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
         allowedHeaders: process.env.CORS_ALLOWED_HEADERS
             ? process.env.CORS_ALLOWED_HEADERS.split(',').map(header => header.trim())
             : ['Content-Type', 'Authorization', 'Accept', 'X-Restaurant-ID', 'x-restaurant-id'],
-        credentials: process.env.CORS_CREDENTIALS === 'true',
+        credentials: process.env.CORS_CREDENTIALS !== 'false',
     },
 
     // Swagger Configuration
