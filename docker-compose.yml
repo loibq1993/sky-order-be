@@ -1,6 +1,7 @@
 # Backend: NestJS API + PostgreSQL
-# Run from sky-order-be/: docker compose up -d
-# Env: copy .env.docker.example to .env
+# Run from sky-order-be/: docker compose up -d --build
+# If you see "Cannot find module '/app/dist/main.js'", rebuild: docker compose build --no-cache backend && docker compose up -d
+# Env: copy .env.example to .env
 
 services:
   backend:
