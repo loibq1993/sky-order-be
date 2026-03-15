@@ -79,8 +79,7 @@ export class PublicTablesController {
             throw new NotFoundException(`Table number ${tableNumber} not found`);
         }
 
-        // Get active order for this table
-        const activeOrder = await this.ordersService.getActiveOrderByTable(table.id);
+        const activeOrder = await this.ordersService.getActiveOrderByTable(table.id, restaurantId);
 
         if (!activeOrder) {
             return {

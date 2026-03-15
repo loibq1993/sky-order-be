@@ -1,66 +1,218 @@
-import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull } from 'typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { User } from '../entities/user.entity';
-import { Restaurant } from '../entities/restaurant.entity';
-import { getRootDomain, slugify } from '../utils/domain';
+import { PlatformUser } from '../entities/platform-user.entity';
+import { Tenant } from '../entities/tenant.entity';
+import { TenantUser } from '../entities/tenant/tenant-user.entity';
+import { TenantSchemaService } from '../tenant/tenant-schema.service';
+import { TenantService } from '../tenant/tenant.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+
+export type AuthUser = {
+  id: string;
+  username: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  role: string;
+  restaurantId: string | null;
+  tenant?: Tenant;
+};
 
 @Injectable()
 export class AuthService {
   constructor(
-    @InjectRepository(User)
-    private userRepository: Repository<User>,
-    @InjectRepository(Restaurant)
-    private restaurantRepository: Repository<Restaurant>,
+    @InjectRepository(PlatformUser)
+    private platformUserRepository: Repository<PlatformUser>,
+    @InjectRepository(Tenant)
+    private tenantRepository: Repository<Tenant>,
+    private configService: ConfigService,
     private jwtService: JwtService,
+    private tenantSchemaService: TenantSchemaService,
+    private tenantService: TenantService,
   ) {}
 
-  async validateUser(username: string, password: string): Promise<any> {
-    const user = await this.userRepository.findOne({
-      where: { username, isActive: true },
-      relations: ['restaurant'],
+  /**
+   * Validate user: first try platform_users (super_admin); then if tenantId provided, try that tenant's users.
+   */
+  async validateUser(
+    username: string,
+    password: string,
+    tenantId?: string,
+  ): Promise<AuthUser | null> {
+    const platformUser = await this.platformUserRepository.findOne({
+      where: { username },
     });
-
-    if (user && await bcrypt.compare(password, user.passwordHash)) {
-      const { passwordHash, ...result } = user;
-      return result;
+    if (platformUser && (await bcrypt.compare(password, platformUser.passwordHash))) {
+      return {
+        id: platformUser.id,
+        username: platformUser.username,
+        email: platformUser.email ?? undefined,
+        firstName: undefined,
+        lastName: undefined,
+        role: 'super_admin',
+        restaurantId: null,
+      };
     }
+
+    if (tenantId) {
+      const tenantUser = await this.tenantSchemaService.runInTenant(
+        tenantId,
+        async (manager) => {
+          const repo = manager.getRepository(TenantUser);
+          const user = await repo.findOne({
+            where: { username, isActive: true },
+          });
+          if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+            return null;
+          }
+          return user;
+        },
+      );
+      if (tenantUser) {
+        const tenant = await this.tenantService.findPublicById(tenantId);
+        return {
+          id: tenantUser.id,
+          username: tenantUser.username,
+          email: tenantUser.email ?? undefined,
+          firstName: tenantUser.firstName ?? undefined,
+          lastName: tenantUser.lastName ?? undefined,
+          role: tenantUser.role,
+          restaurantId: tenantId,
+          tenant,
+        };
+      }
+    }
+
     return null;
   }
 
-  /**
-   * Customer-only login (e.g. client app). Rejects super_admin and staff roles.
-   */
   async loginAsCustomer(loginDto: LoginDto) {
-    const user = await this.validateUser(loginDto.username, loginDto.password);
+    const tenantId = loginDto.tenantId ?? (loginDto as any).tenantIdFromDomain;
+    if (!tenantId) {
+      throw new BadRequestException('Tenant context required for customer login. Send X-Tenant-Domain (or use storefront origin).');
+    }
+    const user = await this.validateUser(
+      loginDto.username,
+      loginDto.password,
+      tenantId,
+    );
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
     if (user.role !== 'customer') {
       throw new ForbiddenException('Use the admin login page for staff accounts');
     }
-    return this.login(loginDto);
+    return this.loginWithUser(user, loginDto);
+  }
+
+  /**
+   * Validate only tenant user (no platform/super_admin). Used when request is from tenant domain.
+   */
+  private async validateTenantUserOnly(
+    username: string,
+    password: string,
+    tenantId: string,
+  ): Promise<AuthUser | null> {
+    const tenantUser = await this.tenantSchemaService.runInTenant(
+      tenantId,
+      async (manager) => {
+        const repo = manager.getRepository(TenantUser);
+        const user = await repo.findOne({
+          where: { username, isActive: true },
+        });
+        if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+          return null;
+        }
+        return user;
+      },
+    );
+    if (!tenantUser) return null;
+    const tenant = await this.tenantService.findPublicById(tenantId);
+    return {
+      id: tenantUser.id,
+      username: tenantUser.username,
+      email: tenantUser.email ?? undefined,
+      firstName: tenantUser.firstName ?? undefined,
+      lastName: tenantUser.lastName ?? undefined,
+      role: tenantUser.role,
+      restaurantId: tenantId,
+      tenant,
+    };
   }
 
   async login(loginDto: LoginDto) {
-    const user = await this.validateUser(loginDto.username, loginDto.password);
+    const hostHeader = (loginDto as any).hostForTenantResolution as string | undefined;
+    const hostname = hostHeader?.split(':')[0]?.trim() ?? '';
+    const rootDomains: string[] = this.configService.get('app.rootDomains') ?? ['localhost', '127.0.0.1'];
+    const isRootDomain = hostname && rootDomains.some((r: string) => r.trim().toLowerCase() === hostname.toLowerCase());
+
+    if (isRootDomain) {
+      // Platform root: allow super_admin and tenant users (with tenantId from domain or body)
+      const tenantId = loginDto.tenantId ?? (loginDto as any).tenantIdFromDomain;
+      const user = await this.validateUser(
+        loginDto.username,
+        loginDto.password,
+        tenantId,
+      );
+      if (!user) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+      return this.loginWithUser(user, loginDto);
+    }
+
+    // Non-root: treat as tenant domain; only allow tenant users, block super_admin
+    const tenantFromDomain = hostname ? await this.tenantService.findByDomain(hostname) : null;
+    if (!tenantFromDomain) {
+      throw new UnauthorizedException(
+        'Super admin login is only allowed from the platform root domain. Use the root URL or sign in with a tenant account.',
+      );
+    }
+
+    const platformUser = await this.platformUserRepository.findOne({
+      where: { username: loginDto.username },
+    });
+    if (
+      platformUser &&
+      (await bcrypt.compare(loginDto.password, platformUser.passwordHash))
+    ) {
+      throw new UnauthorizedException(
+        'Use the platform admin URL (e.g. localhost) to sign in as super admin.',
+      );
+    }
+    const user = await this.validateTenantUserOnly(
+      loginDto.username,
+      loginDto.password,
+      tenantFromDomain.id,
+    );
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    return this.loginWithUser(user, loginDto);
+  }
 
-    // Update last login
-    const updateData: Partial<User> = {
-      lastLoginAt: new Date(),
-    };
-    if (loginDto.ip) {
-      updateData.lastLoginIp = loginDto.ip;
+  private async loginWithUser(user: AuthUser, loginDto: LoginDto) {
+    if (user.restaurantId) {
+      await this.tenantSchemaService.runInTenant(user.restaurantId, async (manager) => {
+        const repo = manager.getRepository(TenantUser);
+        await repo.update(
+          { id: user.id },
+          {
+            lastLoginAt: new Date(),
+            ...(loginDto.ip && { lastLoginIp: loginDto.ip }),
+          },
+        );
+      });
     }
-    await this.userRepository.update(user.id, updateData);
 
     const payload = {
       sub: user.id,
@@ -69,7 +221,7 @@ export class AuthService {
       restaurantId: user.restaurantId,
     };
 
-    return {
+    const response: { access_token: string; user: any } = {
       access_token: this.jwtService.sign(payload),
       user: {
         id: user.id,
@@ -78,182 +230,170 @@ export class AuthService {
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
-        restaurant: user.restaurant,
+        restaurant: user.tenant ?? null,
       },
     };
+    return response;
   }
 
   async register(registerDto: RegisterDto) {
-    // Check if username already exists
-    const existingUser = await this.userRepository.findOne({
-      where: {
-        username: registerDto.username,
-        restaurantId: registerDto.restaurantId ?? IsNull(),
-      },
-    });
+    if (!registerDto.restaurantId) {
+      throw new BadRequestException('Tenant ID (restaurantId or tenantId) is required for registration');
+    }
+    const tenantId = (registerDto as any).tenantId ?? registerDto.restaurantId;
 
-    if (existingUser) {
+    const existing = await this.tenantSchemaService.runInTenant(tenantId, async (manager) => {
+      const repo = manager.getRepository(TenantUser);
+      return repo.findOne({ where: { username: registerDto.username } });
+    });
+    if (existing) {
       throw new BadRequestException('Username already exists');
     }
 
-    // Check if email already exists
     if (registerDto.email) {
-      const existingEmail = await this.userRepository.findOne({
-        where: { email: registerDto.email },
+      const existingEmail = await this.tenantSchemaService.runInTenant(tenantId, async (manager) => {
+        const repo = manager.getRepository(TenantUser);
+        return repo.findOne({ where: { email: registerDto.email } });
       });
-
       if (existingEmail) {
         throw new BadRequestException('Email already exists');
       }
     }
 
-    // Hash password
-    const saltRounds = 10;
-    const passwordHash = await bcrypt.hash(registerDto.password, saltRounds);
-
-    // Create user
-    const user = this.userRepository.create({
-      username: registerDto.username,
-      passwordHash,
-      email: registerDto.email,
-      firstName: registerDto.firstName,
-      lastName: registerDto.lastName,
-      phone: registerDto.phone,
-      role: registerDto.role || 'customer',
-      restaurantId: registerDto.restaurantId,
-      isActive: true,
+    const passwordHash = await bcrypt.hash(registerDto.password, 10);
+    const saved = await this.tenantSchemaService.runInTenant(tenantId, async (manager) => {
+      const repo = manager.getRepository(TenantUser);
+      const user = repo.create({
+        username: registerDto.username,
+        passwordHash,
+        email: registerDto.email,
+        firstName: registerDto.firstName,
+        lastName: registerDto.lastName,
+        phone: registerDto.phone,
+        role: registerDto.role || 'customer',
+        isActive: true,
+      });
+      return repo.save(user);
     });
 
-    const savedUser = await this.userRepository.save(user);
-
-    // Return user without password
-    const { passwordHash: _, ...result } = savedUser;
+    const { passwordHash: _, ...result } = saved;
     return result;
   }
 
   async createRestaurantOwner(restaurantData: any, userData: any) {
-    // Create restaurant first
-    const existingRestaurant = await this.restaurantRepository.findOne({
-      where: { name: restaurantData.name },
+    const tenant = await this.tenantService.createTenant({
+      name: restaurantData.name,
+      nameKo: restaurantData.nameKo,
+      description: restaurantData.description,
+      descriptionKo: restaurantData.descriptionKo,
+      address: restaurantData.address,
+      phone: restaurantData.phone,
+      email: restaurantData.email,
+      website: restaurantData.website,
+      timezone: restaurantData.timezone,
+      currency: restaurantData.currency,
+      language: restaurantData.language,
+      settings: restaurantData.settings,
+      businessHours: restaurantData.businessHours,
     });
-    if (existingRestaurant) {
-      throw new BadRequestException('Restaurant name already exists');
-    }
 
-    // Dùng website làm domain riêng tenant nếu có (hostname, không protocol/path); không thì dùng customDomain hoặc generate subdomain
-    const domainFromWebsite = restaurantData.website?.replace(/^https?:\/\//i, '').split('/')[0]?.trim();
-    if (restaurantData.customDomain) {
-      // giữ nguyên nếu đã gửi customDomain
-    } else if (domainFromWebsite) {
-      restaurantData.customDomain = domainFromWebsite;
-    } else {
-      restaurantData.customDomain = await this.generateUniqueSubdomain(restaurantData.name);
-    }
-
-    const restaurant = this.restaurantRepository.create(restaurantData);
-    const savedRestaurant = await this.restaurantRepository.save(restaurant) as unknown as Restaurant;
-
-    // Ensure username is unique within this restaurant
-    const existingOwner = await this.userRepository.findOne({
-      where: {
-        username: userData.username,
-        restaurantId: savedRestaurant.id,
-      },
-    });
-    if (existingOwner) {
-      throw new BadRequestException('Username already exists');
-    }
-
-    if (userData.email) {
-      const existingEmail = await this.userRepository.findOne({
-        where: { email: userData.email },
-      });
-      if (existingEmail) {
-        throw new BadRequestException('Email already exists');
-      }
-    }
-
-    // Create restaurant owner
-    const saltRounds = 10;
-    const passwordHash = await bcrypt.hash(userData.password, saltRounds);
-
-    const user = this.userRepository.create({
+    const owner = await this.tenantService.seedOwner(tenant.id, {
       username: userData.username,
-      passwordHash,
+      password: userData.password,
       email: userData.email,
       firstName: userData.firstName,
       lastName: userData.lastName,
       phone: userData.phone,
-      role: 'restaurant_owner',
-      restaurantId: savedRestaurant.id,
-      isActive: true,
     });
 
-    const savedUser = await this.userRepository.save(user);
-
     return {
-      restaurant: savedRestaurant,
+      restaurant: tenant,
       user: {
-        id: savedUser.id,
-        username: savedUser.username,
-        email: savedUser.email,
-        firstName: savedUser.firstName,
-        lastName: savedUser.lastName,
-        role: savedUser.role,
-        restaurant: savedRestaurant,
+        id: owner.id,
+        username: owner.username,
+        email: owner.email,
+        firstName: owner.firstName,
+        lastName: owner.lastName,
+        role: owner.role,
+        restaurant: tenant,
       },
     };
   }
 
-  async getProfile(userId: string) {
-    const user = await this.userRepository.findOne({
-      where: { id: userId, isActive: true },
-      relations: ['restaurant'],
-    });
-
-    if (!user) {
-      throw new UnauthorizedException('User not found');
+  async getProfile(userId: string, restaurantId: string | null): Promise<AuthUser | null> {
+    if (!restaurantId) {
+      const platformUser = await this.platformUserRepository.findOne({
+        where: { id: userId },
+      });
+      if (!platformUser) return null;
+      return {
+        id: platformUser.id,
+        username: platformUser.username,
+        email: platformUser.email ?? undefined,
+        firstName: undefined,
+        lastName: undefined,
+        role: 'super_admin',
+        restaurantId: null,
+      };
     }
 
-    const { passwordHash, ...result } = user;
-    return result;
+    const tenantUser = await this.tenantSchemaService.runInTenant(
+      restaurantId,
+      async (manager) => {
+        const repo = manager.getRepository(TenantUser);
+        return repo.findOne({
+          where: { id: userId, isActive: true },
+        });
+      },
+    );
+    if (!tenantUser) return null;
+
+    const tenant = await this.tenantService.findPublicById(restaurantId);
+    return {
+      id: tenantUser.id,
+      username: tenantUser.username,
+      email: tenantUser.email ?? undefined,
+      firstName: tenantUser.firstName ?? undefined,
+      lastName: tenantUser.lastName ?? undefined,
+      role: tenantUser.role,
+      restaurantId,
+      tenant,
+    };
   }
 
-  private async generateUniqueSubdomain(name: string): Promise<string | undefined> {
-    const rootDomain = getRootDomain();
-    if (!rootDomain) {
-      return undefined;
+  async changePassword(
+    userId: string,
+    oldPassword: string,
+    newPassword: string,
+    restaurantId: string | null,
+  ) {
+    if (!restaurantId) {
+      const platformUser = await this.platformUserRepository.findOne({
+        where: { id: userId },
+      });
+      if (!platformUser) {
+        throw new UnauthorizedException('User not found');
+      }
+      if (!(await bcrypt.compare(oldPassword, platformUser.passwordHash))) {
+        throw new BadRequestException('Old password is incorrect');
+      }
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      await this.platformUserRepository.update(userId, { passwordHash });
+      return { message: 'Password changed successfully' };
     }
-    const base = slugify(name || 'restaurant');
-    let candidate = `${base}.${rootDomain}`;
-    let counter = 1;
 
-    while (await this.restaurantRepository.findOne({ where: { customDomain: candidate } })) {
-      counter += 1;
-      candidate = `${base}-${counter}.${rootDomain}`;
-    }
-
-    return candidate;
-  }
-
-  async changePassword(userId: string, oldPassword: string, newPassword: string) {
-    const user = await this.userRepository.findOne({
-      where: { id: userId },
+    await this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantUser);
+      const user = await repo.findOne({ where: { id: userId } });
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+      if (!(await bcrypt.compare(oldPassword, user.passwordHash))) {
+        throw new BadRequestException('Old password is incorrect');
+      }
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      await repo.update(userId, { passwordHash });
     });
-
-    if (!user) {
-      throw new UnauthorizedException('User not found');
-    }
-
-    const isOldPasswordValid = await bcrypt.compare(oldPassword, user.passwordHash);
-    if (!isOldPasswordValid) {
-      throw new BadRequestException('Old password is incorrect');
-    }
-
-    const saltRounds = 10;
-    const passwordHash = await bcrypt.hash(newPassword, saltRounds);
-
-    await this.userRepository.update(userId, { passwordHash });
     return { message: 'Password changed successfully' };
   }
 }

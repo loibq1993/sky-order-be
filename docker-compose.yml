@@ -2,6 +2,8 @@
 # Run from sky-order-be/: docker compose up -d --build
 # If you see "Cannot find module '/app/dist/main.js'", rebuild: docker compose build --no-cache backend && docker compose up -d
 # Env: copy .env.example to .env
+#
+# Socket.IO (call-staff real-time): same port 4500, path /socket.io. FE uses NEXT_PUBLIC_BACKEND_URL for both API and WS; set NEXT_PUBLIC_WS_URL only if WS is on another host/port.
 
 services:
   backend:

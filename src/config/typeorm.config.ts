@@ -1,12 +1,17 @@
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { Product } from '../entities/product.entity';
-import { Category } from '../entities/category.entity';
-import { Order, OrderItem } from '../entities/order.entity';
-import { ProductCategory } from '../entities/product-category.entity';
-import { Table } from '../entities/table.entity';
-import { Restaurant } from '../entities/restaurant.entity';
-import { User } from '../entities/user.entity';
+import { Tenant } from '../entities/tenant.entity';
+import { PlatformUser } from '../entities/platform-user.entity';
+import { Notification } from '../entities/notification.entity';
+import {
+  TenantUser,
+  TenantCategory,
+  TenantProduct,
+  TenantProductCategory,
+  TenantTable,
+  TenantOrder,
+  TenantOrderItem,
+} from '../entities/tenant';
 import { join } from 'path';
 
 export const getTypeOrmConfig = (configService: ConfigService): TypeOrmModuleOptions => ({
@@ -16,7 +21,18 @@ export const getTypeOrmConfig = (configService: ConfigService): TypeOrmModuleOpt
     username: configService.get<string>('app.database.username'),
     password: configService.get<string>('app.database.password'),
     database: configService.get<string>('app.database.database'),
-    entities: [Product, Category, Order, OrderItem, ProductCategory, Table, Restaurant, User],
+    entities: [
+      Tenant,
+      PlatformUser,
+      Notification,
+      TenantUser,
+      TenantCategory,
+      TenantProduct,
+      TenantProductCategory,
+      TenantTable,
+      TenantOrder,
+      TenantOrderItem,
+    ],
     migrations: [join(__dirname, '..', 'migrations', '*.{ts,js}')],
     migrationsTableName: 'migrations',
     migrationsRun: true,

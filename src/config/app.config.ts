@@ -28,7 +28,7 @@ export class AppConfig {
                 'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'
             ]),
             allowedHeaders: this.configService.get<string[]>('app.cors.allowedHeaders', [
-                'Content-Type', 'Authorization', 'Accept', 'X-Restaurant-ID', 'x-restaurant-id'
+                'Content-Type', 'Authorization', 'Accept', 'X-Tenant-Domain', 'x-tenant-domain'
             ]),
             credentials: this.configService.get<boolean>('app.cors.credentials', true),
         };

@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, MaxLength, IsNotEmpty, IsNumber, IsEnum, IsBoolean, Min } from 'class-validator';
+import { IsString, IsOptional, MaxLength, IsNotEmpty, IsNumber, IsEnum, IsBoolean, Min, Max } from 'class-validator';
 
 export enum TableStatus {
     AVAILABLE = 'available',
@@ -134,6 +134,16 @@ export class GenerateQrCodesDto {
     @IsNumber()
     @Min(1)
     count: number;
+
+    @ApiPropertyOptional({
+        description: 'Sức chứa mỗi bàn (số người). Mặc định 4.',
+        example: 4
+    })
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    @Max(50)
+    capacity?: number;
 }
 
 export class TableResponseDto {

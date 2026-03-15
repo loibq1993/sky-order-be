@@ -18,7 +18,7 @@ RUN yarn build && \
 FROM base AS runner
 WORKDIR /app
 
-ENV NODE_ENV=production
+# NODE_ENV is set at runtime from .env (e.g. via docker-compose env_file) so it can be development or production
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nestjs
 
 # Copy built output (NestJS may output dist/main.js or dist/src/main.js depending on tsconfig)

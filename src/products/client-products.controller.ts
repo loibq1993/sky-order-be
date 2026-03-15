@@ -3,6 +3,7 @@ import {
     Get,
     Param,
     Query,
+    UseGuards,
     UseInterceptors,
     ClassSerializerInterceptor
 } from '@nestjs/common';
@@ -16,9 +17,11 @@ import {
 import { ProductsService } from './products.service';
 import { ProductResponseDto } from './products.dto';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
+import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
 
 @ApiTags('products-client')
 @Controller('client/products')
+@UseGuards(ResolveTenantFromDomainGuard)
 @UseInterceptors(ClassSerializerInterceptor)
 export class ClientProductsController {
     constructor(private readonly productsService: ProductsService) { }

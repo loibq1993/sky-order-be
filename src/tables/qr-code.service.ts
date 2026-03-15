@@ -8,7 +8,7 @@ import * as fs from 'fs';
 export class QrCodeService {
     private readonly qrCodeDir = path.join(process.cwd(), 'public', 'upload', 'qr-codes');
 
-    constructor() {
+    constructor(private readonly configService: ConfigService) {
         this.ensureQrCodeDirectory();
     }
 
@@ -16,6 +16,22 @@ export class QrCodeService {
         if (!fs.existsSync(this.qrCodeDir)) {
             fs.mkdirSync(this.qrCodeDir, { recursive: true });
         }
+    }
+
+    /** Use http for localhost/127.0.0.1; otherwise use app.nodeEnv: production → https, else → http */
+    private applyProtocolByEnv(url: string): string {
+        try {
+            const parsed = new URL(url);
+            const host = parsed.hostname?.toLowerCase() ?? '';
+            const isLocal = host === 'localhost' || host === '127.0.0.1';
+            const nodeEnv = this.configService.get<string>('app.nodeEnv') ?? process.env.NODE_ENV ?? 'development';
+            const useHttps = !isLocal && nodeEnv === 'production';
+            parsed.protocol = useHttps ? 'https:' : 'http:';
+            return parsed.toString();
+        } catch {
+            // ignore
+        }
+        return url;
     }
 
     async generateQrCode(data: string, filename: string): Promise<string> {
@@ -53,9 +69,19 @@ export class QrCodeService {
         // Generate UUID for QR code
         const qrUuid = require('uuid').v4();
 
-        // Ensure baseUrl has a protocol (https in production, http in dev)
-        const defaultProtocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
-        const secureBaseUrl = baseUrl.includes('://') ? baseUrl : `${defaultProtocol}://${baseUrl}`;
+        const nodeEnv = this.configService.get<string>('app.nodeEnv') ?? process.env.NODE_ENV ?? 'development';
+        const baseUrlHost = (() => {
+            try {
+                const u = baseUrl.includes('://') ? baseUrl : `http://${baseUrl}`;
+                return new URL(u).hostname?.toLowerCase() ?? '';
+            } catch {
+                return '';
+            }
+        })();
+        const isLocalHost = baseUrlHost === 'localhost' || baseUrlHost === '127.0.0.1';
+        const defaultProtocol = isLocalHost || nodeEnv !== 'production' ? 'http' : 'https';
+        let secureBaseUrl = baseUrl.includes('://') ? baseUrl : `${defaultProtocol}://${baseUrl}`;
+        secureBaseUrl = this.applyProtocolByEnv(secureBaseUrl);
 
         // Create order URL for the table (redirect to frontend) - using tableNumber
         const baseOrderUrl = new URL(secureBaseUrl);
@@ -76,14 +102,25 @@ export class QrCodeService {
         // Generate QR code image
         const qrCodeImagePath = await this.generateQrCode(qrData, filename);
 
-        // URL to access QR code (public API endpoint) - use tableId instead of qrUuid
-        const backendUrl = process.env.API_BASE_URL || baseUrl;
-        const secureBackendUrl = backendUrl.includes('://')
+        const backendUrl = this.configService.get<string>('app.apiBaseUrl') || baseUrl;
+        const backendHost = (() => {
+            try {
+                const u = backendUrl.includes('://') ? backendUrl : `http://${backendUrl}`;
+                return new URL(u).hostname?.toLowerCase() ?? '';
+            } catch {
+                return '';
+            }
+        })();
+        const backendIsLocal = backendHost === 'localhost' || backendHost === '127.0.0.1';
+        const backendProtocol = backendIsLocal || nodeEnv !== 'production' ? 'http' : 'https';
+        let secureBackendUrl = backendUrl.includes('://')
             ? backendUrl
-            : `${defaultProtocol}://${backendUrl}`;
+            : `${backendProtocol}://${backendUrl}`;
+        secureBackendUrl = this.applyProtocolByEnv(secureBackendUrl);
+        const baseNoTrailing = secureBackendUrl.replace(/\/+$/, '');
         const qrCodeUrl = restaurantId
-            ? `${secureBackendUrl}/api/tables/qr/${tableNumber}?restaurantId=${restaurantId}`
-            : `${secureBackendUrl}/api/tables/qr/${tableNumber}`;
+            ? `${baseNoTrailing}/api/tables/qr/${tableNumber}?restaurantId=${restaurantId}`
+            : `${baseNoTrailing}/api/tables/qr/${tableNumber}`;
 
         return {
             qrCodeUrl,

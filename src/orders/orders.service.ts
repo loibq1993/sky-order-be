@@ -1,651 +1,442 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, In } from 'typeorm';
-import { Order, OrderItem } from '../entities/order.entity';
-import { Product } from '../entities/product.entity';
-import { Table } from '../entities/table.entity';
-import { CreateOrderDto, UpdateOrderDto, OrderResponseDto, OrderItemResponseDto, OrderType, OrderStatus } from './orders.dto';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import { IsNull, In } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
+import { TenantOrder } from '../entities/tenant/tenant-order.entity';
+import { TenantOrderItem } from '../entities/tenant/tenant-order-item.entity';
+import { TenantProduct } from '../entities/tenant/tenant-product.entity';
+import { TenantTable } from '../entities/tenant/tenant-table.entity';
+import { TenantSchemaService } from '../tenant/tenant-schema.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import {
+  CreateOrderDto,
+  UpdateOrderDto,
+  OrderResponseDto,
+  OrderItemResponseDto,
+  OrderType,
+  OrderStatus,
+} from './orders.dto';
+
+const ACTIVE_ORDER_STATUSES = [
+  OrderStatus.PENDING,
+  OrderStatus.CONFIRMED,
+  OrderStatus.PREPARING,
+  OrderStatus.READY,
+  OrderStatus.SERVED,
+];
 
 @Injectable()
 export class OrdersService {
-    constructor(
-        @InjectRepository(Order)
-        private orderRepository: Repository<Order>,
-        @InjectRepository(OrderItem)
-        private orderItemRepository: Repository<OrderItem>,
-        @InjectRepository(Product)
-        private productRepository: Repository<Product>,
-        @InjectRepository(Table)
-        private tableRepository: Repository<Table>,
-    ) { }
+  constructor(
+    private tenantSchemaService: TenantSchemaService,
+    private notificationsService: NotificationsService,
+  ) {}
 
-    private generateOrderNumber(): string {
-        const timestamp = Date.now().toString();
-        const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-        return `ORD-${timestamp}-${random}`;
-    }
+  private generateOrderNumber(): string {
+    const timestamp = Date.now().toString();
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `ORD-${timestamp}-${random}`;
+  }
 
-    async createOrder(createOrderDto: CreateOrderDto): Promise<OrderResponseDto> {
-        const orderNumber = this.generateOrderNumber();
+  async createOrder(createOrderDto: CreateOrderDto, restaurantId: string): Promise<OrderResponseDto> {
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const tableRepo = manager.getRepository(TenantTable);
+      const orderRepo = manager.getRepository(TenantOrder);
+      const orderItemRepo = manager.getRepository(TenantOrderItem);
+      const productRepo = manager.getRepository(TenantProduct);
 
-        // Validate table if provided
-        let table: Table | null = null;
-        if (createOrderDto.tableId || createOrderDto.tableNumber) {
-            if (createOrderDto.tableId) {
-                table = await this.tableRepository.findOne({
-                    where: { id: createOrderDto.tableId, deletedAt: IsNull() }
-                });
-                if (!table) {
-                    throw new BadRequestException(`Table with ID ${createOrderDto.tableId} not found`);
-                }
-            } else if (createOrderDto.tableNumber) {
-                table = await this.tableRepository.findOne({
-                    where: { tableNumber: createOrderDto.tableNumber, deletedAt: IsNull() }
-                });
-                if (!table) {
-                    throw new BadRequestException(`Table number ${createOrderDto.tableNumber} not found`);
-                }
-            }
-
-            // Check if there's an active order for this table
-            if (table) {
-                const activeOrder = await this.orderRepository.findOne({
-                    where: {
-                        tableId: table.id,
-                        status: OrderStatus.PENDING || OrderStatus.CONFIRMED || OrderStatus.PREPARING || OrderStatus.READY || OrderStatus.SERVED,
-                        deletedAt: IsNull()
-                    }
-                });
-
-                if (activeOrder) {
-                    throw new BadRequestException(`Table ${table.tableNumber} already has an active order (Order #${activeOrder.orderNumber}). Please add items to the existing order or complete it first.`);
-                }
-            }
+      let table: TenantTable | null = null;
+      if (createOrderDto.tableId || createOrderDto.tableNumber) {
+        if (createOrderDto.tableId) {
+          table = await tableRepo.findOne({
+            where: { id: createOrderDto.tableId, deletedAt: IsNull() },
+          });
+        } else if (createOrderDto.tableNumber) {
+          table = await tableRepo.findOne({
+            where: { tableNumber: createOrderDto.tableNumber, deletedAt: IsNull() },
+          });
         }
-
-        // Validate products exist and calculate totals
-        let totalAmount = 0;
-        const orderItems: any[] = [];
-
-        for (const item of createOrderDto.items) {
-            const product = await this.productRepository.findOne({
-                where: { id: item.productId, deletedAt: IsNull(), available: true, visible: true }
-            });
-
-            if (!product) {
-                throw new BadRequestException(`Product with ID ${item.productId} not found or unavailable`);
-            }
-
-            const itemTotal = product.price * item.quantity;
-            totalAmount += itemTotal;
-
-            orderItems.push({
-                productId: item.productId,
-                productName: product.name,
-                quantity: item.quantity,
-                unitPrice: product.price,
-                totalPrice: itemTotal,
-                specialInstructions: item.notes
-            });
+        if ((createOrderDto.tableId || createOrderDto.tableNumber) && !table) {
+          throw new BadRequestException('Table not found');
         }
-
-        // Create the order
-        const order = new Order();
-        order.id = uuidv4();
-        order.orderNumber = orderNumber;
-        order.status = OrderStatus.PENDING;
-        order.orderType = createOrderDto.orderType;
-        order.tableId = table?.id || null;
-        order.tableNumber = table?.tableNumber || null;
-        order.customerName = createOrderDto.customerName || '';
-        order.customerPhone = createOrderDto.customerPhone || null;
-        order.customerAddress = createOrderDto.customerAddress || null;
-        order.notes = createOrderDto.notes || null;
-        order.subtotal = totalAmount;
-        order.tax = 0;
-        order.deliveryFee = 0;
-        order.total = totalAmount;
-
-        const savedOrder = await this.orderRepository.save(order);
-
-        // Create order items
-        const savedOrderItems: OrderItem[] = [];
-        for (const item of orderItems) {
-            const orderItem = new OrderItem();
-            orderItem.id = uuidv4();
-            orderItem.orderId = savedOrder.id;
-            orderItem.productId = item.productId;
-            orderItem.productName = item.productName;
-            orderItem.quantity = item.quantity;
-            orderItem.unitPrice = item.unitPrice;
-            orderItem.totalPrice = item.totalPrice;
-            orderItem.specialInstructions = item.specialInstructions || null;
-
-            const savedItem = await this.orderItemRepository.save(orderItem);
-            savedOrderItems.push(savedItem);
-        }
-
-        return this.findOne(savedOrder.id);
-    }
-
-    async findAll(): Promise<OrderResponseDto[]> {
-        const orders = await this.orderRepository.find({
-            relations: ['orderItems'],
-            order: { createdAt: 'DESC' },
-        });
-
-        return orders.map(order => this.mapToResponseDto(order));
-    }
-
-    async findOne(id: string, restaurantId?: string): Promise<OrderResponseDto> {
-        const whereCondition: any = { id };
-        if (restaurantId) {
-            whereCondition.restaurantId = restaurantId;
-        }
-
-        const order = await this.orderRepository.findOne({
-            where: whereCondition,
-            relations: ['orderItems'],
-        });
-
-        if (!order) {
-            throw new NotFoundException(`Order with ID ${id} not found`);
-        }
-
-        return this.mapToResponseDto(order);
-    }
-
-    async findByOrderNumber(orderNumber: string): Promise<OrderResponseDto> {
-        const order = await this.orderRepository.findOne({
-            where: { orderNumber },
-            relations: ['orderItems'],
-        });
-
-        if (!order) {
-            throw new NotFoundException(`Order with number ${orderNumber} not found`);
-        }
-
-        return this.mapToResponseDto(order);
-    }
-
-    async updateOrder(id: string, updateOrderDto: UpdateOrderDto): Promise<OrderResponseDto> {
-        const order = await this.orderRepository.findOne({
-            where: { id }
-        });
-        if (!order) {
-            throw new NotFoundException(`Order with ID ${id} not found`);
-        }
-
-        // Handle additional items if provided
-        if (updateOrderDto.additionalItems && updateOrderDto.additionalItems.length > 0) {
-            let additionalTotal = 0;
-
-            // Check if order status allows updates (not cancelled, completed, or delivered)
-            if (order.status === OrderStatus.CANCELLED ||
-                order.status === OrderStatus.COMPLETED ||
-                order.status === OrderStatus.DELIVERED) {
-                throw new BadRequestException(`Cannot add items to order with status: ${order.status}`);
-            }
-
-            for (const item of updateOrderDto.additionalItems) {
-                const product = await this.productRepository.findOne({
-                    where: { id: item.productId, deletedAt: IsNull(), available: true, visible: true }
-                });
-
-                if (!product) {
-                    throw new BadRequestException(`Product with ID ${item.productId} not found or unavailable`);
-                }
-
-                const itemTotal = product.price * item.quantity;
-                additionalTotal += itemTotal;
-                // Create new order item
-                const orderItem = new OrderItem();
-                orderItem.id = uuidv4();
-                orderItem.orderId = id;
-                orderItem.productId = item.productId;
-                orderItem.productName = product.name;
-                orderItem.quantity = item.quantity;
-                orderItem.unitPrice = product.price;
-                orderItem.totalPrice = itemTotal;
-                orderItem.specialInstructions = item.notes || null;
-                await this.orderItemRepository.save(orderItem);
-            }
-
-            // Update order totals
-            order.subtotal += additionalTotal;
-            order.total += additionalTotal;
-
-            // Reset status to PENDING when new items are added (unless already pending)
-            if (order.status !== OrderStatus.PENDING) {
-                order.status = OrderStatus.PENDING;
-            }
-        }
-
-        // Update other fields - only update specific fields to avoid issues with relations
-        const updateData: any = {};
-
-        if (updateOrderDto.status !== undefined) {
-            updateData.status = updateOrderDto.status;
-        }
-        if (updateOrderDto.customerName !== undefined) {
-            updateData.customerName = updateOrderDto.customerName;
-        }
-        if (updateOrderDto.customerPhone !== undefined) {
-            updateData.customerPhone = updateOrderDto.customerPhone;
-        }
-        if (updateOrderDto.customerAddress !== undefined) {
-            updateData.customerAddress = updateOrderDto.customerAddress;
-        }
-        if (updateOrderDto.notes !== undefined) {
-            updateData.notes = updateOrderDto.notes;
-        }
-        if (updateOrderDto.estimatedDeliveryTime !== undefined) {
-            updateData.estimatedDeliveryTime = updateOrderDto.estimatedDeliveryTime;
-        }
-        if (updateOrderDto.actualDeliveryTime !== undefined) {
-            updateData.actualDeliveryTime = updateOrderDto.actualDeliveryTime;
-        }
-
-        // Update order totals and status if additional items were added
-        if (updateOrderDto.additionalItems && updateOrderDto.additionalItems.length > 0) {
-            updateData.subtotal = order.subtotal;
-            updateData.total = order.total;
-            updateData.status = order.status; // Include the status change
-        }
-
-        await this.orderRepository.update(id, updateData);
-
-        // Recalculate total price based on all order items
-        await this.recalculateOrderTotal(id);
-
-        const updatedOrder = await this.orderRepository.findOne({ where: { id } });
-
-        if (!updatedOrder) {
-            throw new NotFoundException(`Order with ID ${id} not found after update`);
-        }
-
-        return this.findOne(updatedOrder.id);
-    }
-
-    async deleteOrder(id: string): Promise<void> {
-        const order = await this.orderRepository.findOne({ where: { id } });
-
-        if (!order) {
-            throw new NotFoundException(`Order with ID ${id} not found`);
-        }
-
-        // Delete order items first
-        await this.orderItemRepository.delete({ orderId: id });
-
-        // Delete the order
-        await this.orderRepository.delete(id);
-    }
-
-    async softDeleteOrder(id: string): Promise<void> {
-        const order = await this.orderRepository.findOne({ where: { id } });
-
-        if (!order) {
-            throw new NotFoundException(`Order with ID ${id} not found`);
-        }
-
-        // Soft delete order items first
-        await this.orderItemRepository.softDelete({ orderId: id });
-
-        // Soft delete the order
-        await this.orderRepository.softDelete(id);
-    }
-
-    async restoreOrder(id: string): Promise<OrderResponseDto> {
-        const order = await this.orderRepository.findOne({
-            where: { id },
-            withDeleted: true
-        });
-
-        if (!order) {
-            throw new NotFoundException(`Order with ID ${id} not found`);
-        }
-
-        // Restore order items first
-        await this.orderItemRepository.restore({ orderId: id });
-
-        // Restore the order
-        await this.orderRepository.restore(id);
-
-        return this.findOne(id);
-    }
-
-    async updateOrderStatus(id: string, status: OrderStatus, restaurantId?: string): Promise<OrderResponseDto> {
-        const whereCondition: any = { id };
-        if (restaurantId) {
-            whereCondition.restaurantId = restaurantId;
-        }
-
-        const order = await this.orderRepository.findOne({ where: whereCondition });
-
-        if (!order) {
-            throw new NotFoundException(`Order with ID ${id} not found`);
-        }
-
-        order.status = status;
-        await this.orderRepository.save(order);
-
-        return this.findOne(id, restaurantId);
-    }
-
-    async findAllWithDeleted(): Promise<OrderResponseDto[]> {
-        const orders = await this.orderRepository.find({
-            withDeleted: true,
-            relations: ['orderItems'],
-            order: { createdAt: 'DESC' },
-        });
-
-        return orders.map(order => this.mapToResponseDto(order));
-    }
-
-    async findOneWithDeleted(id: string): Promise<OrderResponseDto> {
-        const order = await this.orderRepository.findOne({
-            where: { id },
-            withDeleted: true,
-            relations: ['orderItems'],
-        });
-
-        if (!order) {
-            throw new NotFoundException(`Order with ID ${id} not found`);
-        }
-
-        return this.mapToResponseDto(order);
-    }
-
-    async getOrdersByDateRange(startDate: Date, endDate: Date): Promise<OrderResponseDto[]> {
-        const orders = await this.orderRepository.find({
+        if (table) {
+          const activeOrder = await orderRepo.findOne({
             where: {
-                createdAt: {
-                    $gte: startDate,
-                    $lte: endDate
-                } as any
+              tableId: table.id,
+              status: In(ACTIVE_ORDER_STATUSES),
+              deletedAt: IsNull(),
             },
-            relations: ['orderItems'],
-            order: { createdAt: 'DESC' },
-        });
-
-        return orders.map(order => this.mapToResponseDto(order));
-    }
-
-    async getOrdersByCustomer(customerName: string): Promise<OrderResponseDto[]> {
-        const orders = await this.orderRepository.find({
-            where: {
-                customerName: {
-                    $like: `%${customerName}%`
-                } as any
-            },
-            relations: ['orderItems'],
-            order: { createdAt: 'DESC' },
-        });
-
-        return orders.map(order => this.mapToResponseDto(order));
-    }
-
-    async getOrdersByCustomerPhone(customerPhone: string): Promise<OrderResponseDto[]> {
-        const orders = await this.orderRepository.find({
-            where: {
-                customerPhone: {
-                    $like: `%${customerPhone}%`
-                } as any
-            },
-            relations: ['orderItems'],
-            order: { createdAt: 'DESC' },
-        });
-
-        return orders.map(order => this.mapToResponseDto(order));
-    }
-
-    async getOrdersByStatus(status: string): Promise<OrderResponseDto[]> {
-        const orders = await this.orderRepository.find({
-            where: { status: status as OrderStatus },
-            relations: ['orderItems'],
-            order: { createdAt: 'DESC' },
-        });
-
-        return orders.map(order => this.mapToResponseDto(order));
-    }
-
-    async getOrdersByMultipleStatuses(statuses: OrderStatus[], restaurantId?: string): Promise<OrderResponseDto[]> {
-        const whereCondition: any = {
-            status: In(statuses),
-            deletedAt: IsNull()
-        };
-        if (restaurantId) {
-            whereCondition.restaurantId = restaurantId;
+          });
+          if (activeOrder) {
+            throw new BadRequestException(
+              `Table ${table.tableNumber} already has an active order (Order #${activeOrder.orderNumber})`,
+            );
+          }
         }
+      }
 
-        const orders = await this.orderRepository.find({
-            where: whereCondition,
-            order: {
-                createdAt: 'DESC'
-            },
-            relations: ['orderItems', 'orderItems.product']
+      let totalAmount = 0;
+      const orderItems: Array<{
+        productId: string;
+        productName: string;
+        quantity: number;
+        unitPrice: number;
+        totalPrice: number;
+        specialInstructions: string | null;
+      }> = [];
+
+      for (const item of createOrderDto.items) {
+        const product = await productRepo.findOne({
+          where: {
+            id: item.productId,
+            deletedAt: IsNull(),
+            available: true,
+            visible: true,
+          },
         });
-
-        return orders.map(order => this.mapToResponseDto(order));
-    }
-
-    async getOrdersExcludingStatuses(excludedStatuses: OrderStatus[]): Promise<OrderResponseDto[]> {
-        const orders = await this.orderRepository
-            .createQueryBuilder('order')
-            .leftJoinAndSelect('order.orderItems', 'orderItems')
-            .where('order.status NOT IN (:...excludedStatuses)', { excludedStatuses })
-            .orderBy('order.createdAt', 'DESC')
-            .getMany();
-
-        return orders.map(order => this.mapToResponseDto(order));
-    }
-
-    async getActiveOrdersCount(): Promise<number> {
-        const count = await this.orderRepository
-            .createQueryBuilder('order')
-            .where('order.status NOT IN (:...excludedStatuses)', {
-                excludedStatuses: [OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.DELIVERED]
-            })
-            .andWhere('order.deletedAt IS NULL')
-            .getCount();
-
-        return count;
-    }
-
-    async getOrdersCountByStatuses(statuses: OrderStatus[], restaurantId?: string): Promise<number> {
-        const queryBuilder = this.orderRepository
-            .createQueryBuilder('order')
-            .where('order.status IN (:...statuses)', { statuses })
-            .andWhere('order.deletedAt IS NULL');
-
-        if (restaurantId) {
-            queryBuilder.andWhere('order.restaurantId = :restaurantId', { restaurantId });
+        if (!product) {
+          throw new BadRequestException(`Product with ID ${item.productId} not found or unavailable`);
         }
-
-        return queryBuilder.getCount();
-    }
-
-    async getPendingOrdersCount(): Promise<number> {
-        return this.getOrdersCountByStatuses([OrderStatus.PENDING]);
-    }
-
-    async getOrdersByType(orderType: string): Promise<OrderResponseDto[]> {
-        const orders = await this.orderRepository.find({
-            where: { orderType: orderType as OrderType },
-            relations: ['orderItems'],
-            order: { createdAt: 'DESC' },
+        const itemTotal = Number(product.price) * item.quantity;
+        totalAmount += itemTotal;
+        orderItems.push({
+          productId: item.productId,
+          productName: product.name,
+          quantity: item.quantity,
+          unitPrice: Number(product.price),
+          totalPrice: itemTotal,
+          specialInstructions: item.notes || null,
         });
+      }
 
-        return orders.map(order => this.mapToResponseDto(order));
-    }
+      const order = orderRepo.create({
+        orderNumber: this.generateOrderNumber(),
+        status: OrderStatus.PENDING,
+        orderType: createOrderDto.orderType as string,
+        tableId: table?.id ?? null,
+        tableNumber: table?.tableNumber ?? null,
+        customerName: createOrderDto.customerName || '',
+        customerPhone: createOrderDto.customerPhone ?? null,
+        customerAddress: createOrderDto.customerAddress ?? null,
+        notes: createOrderDto.notes ?? null,
+        subtotal: totalAmount,
+        tax: 0,
+        deliveryFee: 0,
+        total: totalAmount,
+      });
+      const savedOrder = await orderRepo.save(order);
 
-    async getOrdersByTable(tableId: string): Promise<OrderResponseDto[]> {
-        const orders = await this.orderRepository.find({
-            where: { tableId },
-            relations: ['orderItems'],
-            order: { createdAt: 'DESC' },
+      const savedOrderItems: TenantOrderItem[] = [];
+      for (const item of orderItems) {
+        const oi = orderItemRepo.create({
+          orderId: savedOrder.id,
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          specialInstructions: item.specialInstructions,
         });
+        const saved = await orderItemRepo.save(oi);
+        savedOrderItems.push(saved);
+      }
 
-        return orders.map(order => this.mapToResponseDto(order));
-    }
+      // Build response from saved entities (no extra query; findOne in new transaction may not see uncommitted data)
+      (savedOrder as TenantOrder & { orderItems: TenantOrderItem[] }).orderItems = savedOrderItems;
 
-    async getActiveOrderByTable(tableId: string): Promise<OrderResponseDto | null> {
-        const order = await this.orderRepository.findOne({
+      await this.notificationsService.create(restaurantId, {
+        type: 'new_order',
+        title: `Bàn ${savedOrder.tableNumber ?? '?'} vừa tạo đơn hàng mới`,
+        message: `Đơn #${savedOrder.orderNumber}`,
+        orderId: savedOrder.id,
+        tableNumber: savedOrder.tableNumber,
+      });
+
+      return this.mapToResponseDto(savedOrder);
+    });
+  }
+
+  async findOne(id: string, restaurantId?: string): Promise<OrderResponseDto> {
+    if (!restaurantId) throw new NotFoundException('Order not found');
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantOrder);
+      const order = await repo.findOne({
+        where: { id },
+        relations: ['orderItems'],
+      });
+      if (!order) throw new NotFoundException(`Order with ID ${id} not found`);
+      return this.mapToResponseDto(order);
+    });
+  }
+
+  async findByOrderNumber(orderNumber: string, restaurantId?: string): Promise<OrderResponseDto> {
+    if (!restaurantId) throw new NotFoundException('Order not found');
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantOrder);
+      const order = await repo.findOne({
+        where: { orderNumber },
+        relations: ['orderItems'],
+      });
+      if (!order) throw new NotFoundException(`Order with number ${orderNumber} not found`);
+      return this.mapToResponseDto(order);
+    });
+  }
+
+  async updateOrder(
+    id: string,
+    updateOrderDto: UpdateOrderDto,
+    restaurantId: string,
+  ): Promise<OrderResponseDto> {
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const orderRepo = manager.getRepository(TenantOrder);
+      const orderItemRepo = manager.getRepository(TenantOrderItem);
+      const productRepo = manager.getRepository(TenantProduct);
+      const order = await orderRepo.findOne({ where: { id }, relations: ['orderItems'] });
+      if (!order) throw new NotFoundException(`Order with ID ${id} not found`);
+
+      if (updateOrderDto.additionalItems && updateOrderDto.additionalItems.length > 0) {
+        const status = order.status;
+        if (
+          status === OrderStatus.CANCELLED ||
+          status === OrderStatus.COMPLETED ||
+          status === OrderStatus.DELIVERED
+        ) {
+          throw new BadRequestException(`Cannot add items to order with status: ${status}`);
+        }
+        let additionalTotal = 0;
+        for (const item of updateOrderDto.additionalItems) {
+          const product = await productRepo.findOne({
             where: {
-                tableId,
-                status: In([OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.SERVED]),
-                deletedAt: IsNull()
+              id: item.productId,
+              deletedAt: IsNull(),
+              available: true,
+              visible: true,
             },
-            relations: ['orderItems'],
-        });
-
-        return order ? this.mapToResponseDto(order) : null;
-    }
-
-    async getUnpaidOrdersByTable(tableId: string): Promise<OrderResponseDto[]> {
-        const orders = await this.orderRepository
-            .createQueryBuilder('order')
-            .leftJoinAndSelect('order.orderItems', 'orderItems')
-            .leftJoinAndSelect('orderItems.product', 'product')
-            .where('order.tableNumber = :tableNumber', { tableNumber: parseInt(tableId, 10) })
-            .andWhere('order.deletedAt IS NULL')
-            .andWhere('order.status IN (:...statuses)', {
-                statuses: [OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.SERVED]
-            })
-            .orderBy('order.createdAt', 'DESC')
-            .getMany();
-
-        return orders.map(order => ({
-            ...this.mapToResponseDto(order),
-            items: order.orderItems.map(item => ({
-                ...this.mapOrderItemToDto(item),
-                product: item.product
-            }))
-        }));
-    }
-
-    private async recalculateOrderTotal(orderId: string): Promise<void> {
-        // Get all order items for this order
-        const orderItems = await this.orderItemRepository.find({
-            where: { orderId }
-        });
-
-        // Calculate total from all order items
-        const subtotal = orderItems.reduce((sum, item) => sum + Number(item.totalPrice), 0);
-        const tax = 0; // You can add tax calculation logic here if needed
-        const deliveryFee = 0; // You can add delivery fee calculation logic here if needed
-        const total = subtotal + tax + deliveryFee;
-
-        // Update the order with recalculated totals
-        await this.orderRepository.update(orderId, {
-            subtotal,
-            tax,
-            deliveryFee,
-            total
-        });
-    }
-
-    private mapOrderItemToDto(item: OrderItem): OrderItemResponseDto {
-        return {
-            id: item.id,
+          });
+          if (!product) {
+            throw new BadRequestException(`Product with ID ${item.productId} not found or unavailable`);
+          }
+          const itemTotal = Number(product.price) * item.quantity;
+          additionalTotal += itemTotal;
+          const oi = orderItemRepo.create({
+            orderId: id,
             productId: item.productId,
-            productName: item.productName,
+            productName: product.name,
             quantity: item.quantity,
-            price: Number(item.unitPrice),
-            totalPrice: Number(item.totalPrice),
-            notes: item.specialInstructions || undefined,
-            createdAt: item.createdAt,
-            updatedAt: item.updatedAt,
-        };
-    }
-
-    private mapToResponseDto(order: Order): OrderResponseDto {
-        return {
-            id: order.id,
-            orderNumber: order.orderNumber,
-            status: order.status as OrderStatus,
-            orderType: order.orderType as OrderType,
-            tableId: order.tableId || undefined,
-            tableNumber: order.tableNumber || undefined,
-            items: (order.orderItems || []).map(item => ({
-                id: item.id,
-                productId: item.productId,
-                productName: item.productName,
-                quantity: item.quantity,
-                price: Number(item.unitPrice),
-                totalPrice: Number(item.totalPrice),
-                notes: item.specialInstructions || undefined,
-                createdAt: item.createdAt,
-                updatedAt: item.updatedAt,
-                product: item.product ? {
-                    id: item.product.id,
-                    name: item.product.name,
-                    image: item.product.image,
-                    price: Number(item.product.price)
-                } : undefined
-            })),
-            totalAmount: Number(order.total),
-            customerName: order.customerName || undefined,
-            customerPhone: order.customerPhone || undefined,
-            customerAddress: order.customerAddress || undefined,
-            notes: order.notes || undefined,
-            specialInstructions: undefined,
-            estimatedDeliveryTime: order.estimatedDeliveryTime || undefined,
-            actualDeliveryTime: order.actualDeliveryTime || undefined,
-            createdAt: order.createdAt,
-            updatedAt: order.updatedAt,
-        };
-    }
-
-    // Get total number of orders
-    async getTotalOrdersCount(restaurantId?: string): Promise<number> {
-        const whereCondition: any = { deletedAt: IsNull() };
-        if (restaurantId) {
-            whereCondition.restaurantId = restaurantId;
+            unitPrice: Number(product.price),
+            totalPrice: itemTotal,
+            specialInstructions: item.notes || null,
+          });
+          await orderItemRepo.save(oi);
         }
-        return this.orderRepository.count({
-            where: whereCondition
+        order.subtotal = Number(order.subtotal) + additionalTotal;
+        order.total = Number(order.total) + additionalTotal;
+        order.status = OrderStatus.PENDING;
+        // Update only order row; do not save(order) or TypeORM will cascade UPDATE to order_items with orderId = undefined
+        await orderRepo.update(id, {
+          subtotal: order.subtotal,
+          total: order.total,
+          status: order.status,
         });
-    }
-
-    // Get today's revenue
-    async getTodayRevenue(restaurantId?: string): Promise<number> {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const queryBuilder = this.orderRepository
-            .createQueryBuilder('order')
-            .select('SUM(order.total)', 'total')
-            .where('order.deletedAt IS NULL')
-            .andWhere('order.status NOT IN (:...excludedStatuses)', {
-                excludedStatuses: [OrderStatus.CANCELLED]
-            })
-            .andWhere('order.createdAt >= :today', { today });
-
-        if (restaurantId) {
-            queryBuilder.andWhere('order.restaurantId = :restaurantId', { restaurantId });
-        }
-
-        const result = await queryBuilder.getRawOne();
-
-        return result?.total || 0;
-    }
-
-    // Get recent orders
-    async getRecentOrders(limit: number = 5, restaurantId?: string): Promise<OrderResponseDto[]> {
-        const whereCondition: any = { deletedAt: IsNull() };
-        if (restaurantId) {
-            whereCondition.restaurantId = restaurantId;
-        }
-
-        const orders = await this.orderRepository.find({
-            where: whereCondition,
-            relations: ['orderItems'],
-            order: { createdAt: 'DESC' },
-            take: limit
+        await this.notificationsService.create(restaurantId, {
+          type: 'order_updated',
+          title: `Bàn ${order.tableNumber ?? '?'} đã thêm món vào đơn`,
+          message: `Đơn #${order.orderNumber} – khách đặt thêm ${updateOrderDto.additionalItems.length} món`,
+          orderId: id,
+          tableNumber: order.tableNumber ?? undefined,
         });
+      }
 
-        return orders.map(order => this.mapToResponseDto(order));
-    }
-} 
+      if (updateOrderDto.status !== undefined) order.status = updateOrderDto.status;
+      if (updateOrderDto.customerName !== undefined) order.customerName = updateOrderDto.customerName;
+      if (updateOrderDto.customerPhone !== undefined) order.customerPhone = updateOrderDto.customerPhone;
+      if (updateOrderDto.customerAddress !== undefined) order.customerAddress = updateOrderDto.customerAddress;
+      if (updateOrderDto.notes !== undefined) order.notes = updateOrderDto.notes;
+      if (updateOrderDto.estimatedDeliveryTime !== undefined)
+        order.estimatedDeliveryTime = updateOrderDto.estimatedDeliveryTime;
+      if (updateOrderDto.actualDeliveryTime !== undefined)
+        order.actualDeliveryTime = updateOrderDto.actualDeliveryTime;
+      // Save order without relations so TypeORM does not cascade UPDATE to order_items (which could set orderId = undefined)
+      const orderToSave = await orderRepo.findOne({ where: { id } });
+      if (!orderToSave) throw new NotFoundException(`Order with ID ${id} not found`);
+      orderToSave.status = order.status;
+      orderToSave.customerName = order.customerName;
+      orderToSave.customerPhone = order.customerPhone;
+      orderToSave.customerAddress = order.customerAddress;
+      orderToSave.notes = order.notes;
+      orderToSave.subtotal = order.subtotal;
+      orderToSave.total = order.total;
+      orderToSave.estimatedDeliveryTime = order.estimatedDeliveryTime;
+      orderToSave.actualDeliveryTime = order.actualDeliveryTime;
+      await orderRepo.save(orderToSave);
+
+      const updated = await orderRepo.findOne({ where: { id }, relations: ['orderItems'] });
+      if (!updated) throw new NotFoundException('Order not found after update');
+      return this.mapToResponseDto(updated);
+    });
+  }
+
+  async getActiveOrderByTable(
+    tableId: string,
+    restaurantId?: string,
+  ): Promise<OrderResponseDto | null> {
+    if (!restaurantId) return null;
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantOrder);
+      const order = await repo.findOne({
+        where: {
+          tableId,
+          status: In(ACTIVE_ORDER_STATUSES),
+          deletedAt: IsNull(),
+        },
+        relations: ['orderItems'],
+      });
+      return order ? this.mapToResponseDto(order) : null;
+    });
+  }
+
+  async getUnpaidOrdersByTable(
+    tableId: string,
+    restaurantId?: string,
+  ): Promise<OrderResponseDto[]> {
+    if (!restaurantId) return [];
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantOrder);
+      const orders = await repo
+        .createQueryBuilder('order')
+        .leftJoinAndSelect('order.orderItems', 'orderItems')
+        .where('order.tableId = :tableId', { tableId })
+        .andWhere('order.deletedAt IS NULL')
+        .andWhere('order.status IN (:...statuses)', { statuses: ACTIVE_ORDER_STATUSES })
+        .orderBy('order.createdAt', 'DESC')
+        .getMany();
+      return orders.map((o) => this.mapToResponseDto(o));
+    });
+  }
+
+  async getTotalOrdersCount(restaurantId?: string): Promise<number> {
+    if (!restaurantId) return 0;
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantOrder);
+      return repo.count({ where: { deletedAt: IsNull() } });
+    });
+  }
+
+  async getOrdersCountByStatuses(
+    statuses: OrderStatus[],
+    restaurantId?: string,
+  ): Promise<number> {
+    if (!restaurantId) return 0;
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantOrder);
+      return repo.count({
+        where: { status: In(statuses), deletedAt: IsNull() },
+      });
+    });
+  }
+
+  async getTodayRevenue(restaurantId?: string): Promise<number> {
+    if (!restaurantId) return 0;
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const repo = manager.getRepository(TenantOrder);
+      const qb = repo
+        .createQueryBuilder('order')
+        .select('SUM(order.total)', 'total')
+        .where('order.deletedAt IS NULL')
+        .andWhere('order.status != :cancelled', { cancelled: OrderStatus.CANCELLED })
+        .andWhere('order.createdAt >= :today', { today });
+      const result = await qb.getRawOne();
+      return Number(result?.total ?? 0);
+    });
+  }
+
+  async getRecentOrders(
+    limit: number = 5,
+    restaurantId?: string,
+  ): Promise<OrderResponseDto[]> {
+    if (!restaurantId) return [];
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantOrder);
+      const orders = await repo.find({
+        where: { deletedAt: IsNull() },
+        relations: ['orderItems'],
+        order: { createdAt: 'DESC' },
+        take: limit,
+      });
+      return orders.map((o) => this.mapToResponseDto(o));
+    });
+  }
+
+  async getOrdersByMultipleStatuses(
+    statuses: OrderStatus[],
+    restaurantId?: string,
+  ): Promise<OrderResponseDto[]> {
+    if (!restaurantId) return [];
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantOrder);
+      const orders = await repo.find({
+        where: { status: In(statuses), deletedAt: IsNull() },
+        relations: ['orderItems'],
+        order: { createdAt: 'DESC' },
+      });
+      return orders.map((o) => this.mapToResponseDto(o));
+    });
+  }
+
+  async updateOrderStatus(
+    id: string,
+    status: OrderStatus,
+    restaurantId?: string,
+  ): Promise<OrderResponseDto> {
+    if (!restaurantId) throw new BadRequestException('restaurantId is required');
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantOrder);
+      const order = await repo.findOne({ where: { id } });
+      if (!order) throw new NotFoundException(`Order with ID ${id} not found`);
+      order.status = status as string;
+      await repo.save(order);
+      const updated = await repo.findOne({ where: { id }, relations: ['orderItems'] });
+      if (!updated) throw new NotFoundException('Order not found');
+      return this.mapToResponseDto(updated);
+    });
+  }
+
+  private mapToResponseDto(order: TenantOrder): OrderResponseDto {
+    const items = (order.orderItems || []).map((item: TenantOrderItem) => ({
+      id: item.id,
+      productId: item.productId,
+      productName: item.productName,
+      quantity: item.quantity,
+      price: Number(item.unitPrice),
+      totalPrice: Number(item.totalPrice),
+      notes: item.specialInstructions ?? undefined,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      product: undefined,
+    }));
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status as OrderStatus,
+      orderType: order.orderType as OrderType,
+      tableId: order.tableId ?? undefined,
+      tableNumber: order.tableNumber ?? undefined,
+      items,
+      totalAmount: Number(order.total),
+      customerName: order.customerName ?? undefined,
+      customerPhone: order.customerPhone ?? undefined,
+      customerAddress: order.customerAddress ?? undefined,
+      notes: order.notes ?? undefined,
+      specialInstructions: undefined,
+      estimatedDeliveryTime: order.estimatedDeliveryTime ?? undefined,
+      actualDeliveryTime: order.actualDeliveryTime ?? undefined,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+    };
+  }
+}

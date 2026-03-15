@@ -1,323 +1,267 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, IsNull } from 'typeorm';
-import { Restaurant } from '../entities/restaurant.entity';
-import { User } from '../entities/user.entity';
-import { Category } from '../entities/category.entity';
-import { Product } from '../entities/product.entity';
-import { Order } from '../entities/order.entity';
-import { Table } from '../entities/table.entity';
-import { getRootDomain, slugify } from '../utils/domain';
+import { Repository, IsNull, Like } from 'typeorm';
+import { Tenant } from '../entities/tenant.entity';
+import { TenantUser } from '../entities/tenant/tenant-user.entity';
+import { TenantCategory } from '../entities/tenant/tenant-category.entity';
+import { TenantProduct } from '../entities/tenant/tenant-product.entity';
+import { TenantOrder } from '../entities/tenant/tenant-order.entity';
+import { TenantTable } from '../entities/tenant/tenant-table.entity';
+import { TenantService } from '../tenant/tenant.service';
+import { TenantSchemaService } from '../tenant/tenant-schema.service';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class AdminService {
   constructor(
-    @InjectRepository(Restaurant)
-    private restaurantRepository: Repository<Restaurant>,
-    @InjectRepository(User)
-    private userRepository: Repository<User>,
-    @InjectRepository(Category)
-    private categoryRepository: Repository<Category>,
-    @InjectRepository(Product)
-    private productRepository: Repository<Product>,
-    @InjectRepository(Order)
-    private orderRepository: Repository<Order>,
-    @InjectRepository(Table)
-    private tableRepository: Repository<Table>,
+    @InjectRepository(Tenant)
+    private tenantRepository: Repository<Tenant>,
+    private tenantService: TenantService,
+    private tenantSchemaService: TenantSchemaService,
   ) {}
 
-  // Restaurant Management
-  async createRestaurant(createRestaurantDto: CreateRestaurantDto): Promise<Restaurant> {
-    const existingRestaurant = await this.restaurantRepository.findOne({
-      where: { name: createRestaurantDto.name },
+  // Tenant (restaurant) management - delegate to TenantService, keep API shape
+  async createRestaurant(dto: CreateRestaurantDto) {
+    return this.tenantService.createTenant({
+      name: dto.name,
+      nameKo: dto.nameKo,
+      description: dto.description,
+      descriptionKo: dto.descriptionKo,
+      logo: dto.logo,
+      coverImage: dto.coverImage,
+      address: dto.address,
+      phone: dto.phone,
+      email: dto.email,
+      website: dto.website,
+      customDomain: dto.customDomain,
+      timezone: dto.timezone,
+      currency: dto.currency,
+      language: dto.language,
+      settings: dto.settings,
+      businessHours: dto.businessHours,
     });
-    if (existingRestaurant) {
-      throw new BadRequestException('Restaurant name already exists');
-    }
-
-    const domainFromWebsite = createRestaurantDto.website?.replace(/^https?:\/\//i, '').split('/')[0]?.trim();
-    if (createRestaurantDto.customDomain) {
-      // giữ nguyên nếu đã gửi customDomain
-    } else if (domainFromWebsite) {
-      createRestaurantDto.customDomain = domainFromWebsite;
-    } else {
-      createRestaurantDto.customDomain = await this.generateUniqueSubdomain(createRestaurantDto.name);
-    }
-
-    const restaurant = this.restaurantRepository.create(createRestaurantDto);
-    return this.restaurantRepository.save(restaurant);
   }
 
   async findAllRestaurants(page: number = 1, limit: number = 10, search?: string) {
-    const queryBuilder = this.restaurantRepository.createQueryBuilder('restaurant')
-      .leftJoinAndSelect('restaurant.users', 'users')
-      .where('restaurant.deletedAt IS NULL');
-
-    if (search) {
-      queryBuilder.andWhere(
-        '(restaurant.name LIKE :search OR restaurant.email LIKE :search OR restaurant.phone LIKE :search)',
-        { search: `%${search}%` }
-      );
-    }
-
-    const [restaurants, total] = await queryBuilder
-      .orderBy('restaurant.createdAt', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
-
+    const result = await this.tenantService.findAll(page, limit, search);
     return {
-      restaurants,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      restaurants: result.tenants,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
     };
   }
 
-  async findRestaurantById(id: string): Promise<Restaurant> {
-    const restaurant = await this.restaurantRepository.findOne({
-      where: { id },
-      relations: ['users', 'categories', 'products', 'tables'],
-    });
-
-    if (!restaurant) {
-      throw new NotFoundException('Restaurant not found');
-    }
-
-    return restaurant;
+  async findRestaurantById(id: string) {
+    return this.tenantService.findById(id);
   }
 
-  async findRestaurantPublicById(id: string): Promise<Restaurant> {
-    const restaurant = await this.restaurantRepository.findOne({
-      where: { id, deletedAt: IsNull() },
-    });
-
-    if (!restaurant) {
-      throw new NotFoundException('Restaurant not found');
-    }
-
-    return restaurant;
+  async findRestaurantPublicById(id: string) {
+    return this.tenantService.findPublicById(id);
   }
 
-  async findRestaurantByDomain(domain: string): Promise<Restaurant | null> {
-    let restaurant = await this.restaurantRepository.findOne({
-      where: { customDomain: domain, deletedAt: IsNull() },
-    });
-    if (!restaurant) {
-      restaurant = await this.restaurantRepository.findOne({
-        where: { website: domain, deletedAt: IsNull() },
-      });
-    }
-    return restaurant || null;
+  async findRestaurantByDomain(domain: string) {
+    return this.tenantService.findByDomain(domain);
   }
 
-  async updateRestaurant(id: string, updateRestaurantDto: UpdateRestaurantDto): Promise<Restaurant> {
-    const restaurant = await this.findRestaurantById(id);
-    
-    Object.assign(restaurant, updateRestaurantDto);
-    return this.restaurantRepository.save(restaurant);
+  async updateRestaurant(id: string, dto: UpdateRestaurantDto) {
+    return this.tenantService.updateTenant(id, dto);
   }
 
-  private async generateUniqueSubdomain(name: string): Promise<string | undefined> {
-    const rootDomain = getRootDomain();
-    if (!rootDomain) {
-      return undefined;
-    }
-    const base = slugify(name || 'restaurant');
-    let candidate = `${base}.${rootDomain}`;
-    let counter = 1;
-
-    while (await this.restaurantRepository.findOne({ where: { customDomain: candidate } })) {
-      counter += 1;
-      candidate = `${base}-${counter}.${rootDomain}`;
-    }
-
-    return candidate;
-  }
-
-  async deleteRestaurant(id: string): Promise<void> {
-    const restaurant = await this.findRestaurantById(id);
-    await this.restaurantRepository.softDelete(id);
+  async deleteRestaurant(id: string) {
+    await this.tenantService.deleteTenant(id);
   }
 
   async getRestaurantStats(id: string) {
-    const restaurant = await this.findRestaurantById(id);
-    
-    const [
-      totalCategories,
-      totalProducts,
-      totalTables,
-      totalOrders,
-      totalUsers,
-    ] = await Promise.all([
-      this.categoryRepository.count({ where: { restaurantId: id } }),
-      this.productRepository.count({ where: { restaurantId: id } }),
-      this.tableRepository.count({ where: { restaurantId: id } }),
-      this.orderRepository.count({ where: { restaurantId: id } }),
-      this.userRepository.count({ where: { restaurantId: id } }),
-    ]);
-
-    return {
-      restaurant,
-      stats: {
+    const tenant = await this.tenantService.findById(id);
+    const stats = await this.tenantSchemaService.runInTenant(id, async (manager) => {
+      const [totalCategories, totalProducts, totalTables, totalOrders, totalUsers] =
+        await Promise.all([
+          manager.getRepository(TenantCategory).count(),
+          manager.getRepository(TenantProduct).count(),
+          manager.getRepository(TenantTable).count(),
+          manager.getRepository(TenantOrder).count(),
+          manager.getRepository(TenantUser).count({ where: { deletedAt: IsNull() } }),
+        ]);
+      return {
         totalCategories,
         totalProducts,
         totalTables,
         totalOrders,
         totalUsers,
-      },
+      };
+    });
+    return {
+      restaurant: tenant,
+      stats,
     };
   }
 
-  // User Management
-  async createUser(createUserDto: CreateUserDto): Promise<User> {
-    // Check if username already exists
-    const existingUser = await this.userRepository.findOne({
-      where: {
+  // User management (tenant-scoped)
+  async createUser(createUserDto: CreateUserDto) {
+    const tenantId = createUserDto.restaurantId;
+    if (!tenantId) {
+      throw new BadRequestException('restaurantId (tenant) is required to create user');
+    }
+    const passwordHash = await bcrypt.hash(createUserDto.password, 10);
+    return this.tenantSchemaService.runInTenant(tenantId, async (manager) => {
+      const repo = manager.getRepository(TenantUser);
+      const existing = await repo.findOne({ where: { username: createUserDto.username } });
+      if (existing) throw new BadRequestException('Username already exists');
+      if (createUserDto.email) {
+        const existingEmail = await repo.findOne({ where: { email: createUserDto.email } });
+        if (existingEmail) throw new BadRequestException('Email already exists');
+      }
+      const user = repo.create({
         username: createUserDto.username,
-        restaurantId: createUserDto.restaurantId ?? IsNull(),
-      },
+        passwordHash,
+        email: createUserDto.email,
+        firstName: createUserDto.firstName,
+        lastName: createUserDto.lastName,
+        phone: createUserDto.phone,
+        role: createUserDto.role || 'restaurant_staff',
+        isActive: true,
+      });
+      const saved = await repo.save(user);
+      const { passwordHash: _, ...out } = saved;
+      return out;
     });
+  }
 
-    if (existingUser) {
-      throw new BadRequestException('Username already exists');
+  async findAllUsers(
+    page: number = 1,
+    limit: number = 10,
+    search?: string,
+    restaurantId?: string,
+  ) {
+    if (!restaurantId) {
+      throw new BadRequestException('restaurantId (tenant) is required to list users');
     }
-
-    // Check if email already exists
-    if (createUserDto.email) {
-      const existingEmail = await this.userRepository.findOne({
-        where: { email: createUserDto.email },
-      });
-
-      if (existingEmail) {
-        throw new BadRequestException('Email already exists');
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantUser);
+      const qb = repo
+        .createQueryBuilder('user')
+        .where('user.deletedAt IS NULL');
+      if (search) {
+        qb.andWhere(
+          '(user.username ILIKE :search OR user.email ILIKE :search OR user.firstName ILIKE :search OR user.lastName ILIKE :search)',
+          { search: `%${search}%` },
+        );
       }
-    }
-
-    const user = this.userRepository.create(createUserDto);
-    return this.userRepository.save(user);
-  }
-
-  async findAllUsers(page: number = 1, limit: number = 10, search?: string, restaurantId?: string) {
-    const queryBuilder = this.userRepository.createQueryBuilder('user')
-      .leftJoinAndSelect('user.restaurant', 'restaurant')
-      .where('user.deletedAt IS NULL');
-
-    if (search) {
-      queryBuilder.andWhere(
-        '(user.username LIKE :search OR user.email LIKE :search OR user.firstName LIKE :search OR user.lastName LIKE :search)',
-        { search: `%${search}%` }
-      );
-    }
-
-    if (restaurantId) {
-      queryBuilder.andWhere('user.restaurantId = :restaurantId', { restaurantId });
-    }
-
-    const [users, total] = await queryBuilder
-      .orderBy('user.createdAt', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
-
-    return {
-      users,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
-  }
-
-  async findUserById(id: string): Promise<User> {
-    const user = await this.userRepository.findOne({
-      where: { id },
-      relations: ['restaurant'],
+      const [users, total] = await qb
+        .orderBy('user.createdAt', 'DESC')
+        .skip((page - 1) * limit)
+        .take(limit)
+        .getManyAndCount();
+      return {
+        users: users.map((u) => {
+          const { passwordHash, ...rest } = u;
+          return rest;
+        }),
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      };
     });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    return user;
   }
 
-  async updateUser(id: string, updateUserDto: UpdateUserDto): Promise<User> {
-    const user = await this.findUserById(id);
-    
-    // Check if username already exists (excluding current user)
-    if (updateUserDto.username && updateUserDto.username !== user.username) {
-      const existingUser = await this.userRepository.findOne({
-        where: { username: updateUserDto.username },
-      });
+  async findUserById(id: string, restaurantId: string) {
+    if (!restaurantId) {
+      throw new BadRequestException('restaurantId (tenant) is required');
+    }
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantUser);
+      const user = await repo.findOne({ where: { id } });
+      if (!user) throw new NotFoundException('User not found');
+      const { passwordHash, ...out } = user;
+      return out;
+    });
+  }
 
-      if (existingUser) {
-        throw new BadRequestException('Username already exists');
+  async updateUser(id: string, updateUserDto: UpdateUserDto, restaurantId: string) {
+    if (!restaurantId) {
+      throw new BadRequestException('restaurantId (tenant) is required');
+    }
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantUser);
+      const user = await repo.findOne({ where: { id } });
+      if (!user) throw new NotFoundException('User not found');
+      if (updateUserDto.username && updateUserDto.username !== user.username) {
+        const existing = await repo.findOne({ where: { username: updateUserDto.username } });
+        if (existing) throw new BadRequestException('Username already exists');
       }
-    }
-
-    // Check if email already exists (excluding current user)
-    if (updateUserDto.email && updateUserDto.email !== user.email) {
-      const existingEmail = await this.userRepository.findOne({
-        where: { email: updateUserDto.email },
-      });
-
-      if (existingEmail) {
-        throw new BadRequestException('Email already exists');
+      if (updateUserDto.email && updateUserDto.email !== user.email) {
+        const existing = await repo.findOne({ where: { email: updateUserDto.email } });
+        if (existing) throw new BadRequestException('Email already exists');
       }
+      if (updateUserDto.password) {
+        (user as any).passwordHash = await bcrypt.hash(updateUserDto.password, 10);
+      }
+      Object.assign(user, {
+        username: updateUserDto.username ?? user.username,
+        email: updateUserDto.email ?? user.email,
+        firstName: updateUserDto.firstName ?? user.firstName,
+        lastName: updateUserDto.lastName ?? user.lastName,
+        phone: updateUserDto.phone ?? user.phone,
+        role: updateUserDto.role ?? user.role,
+      });
+      const saved = await repo.save(user);
+      const { passwordHash, ...out } = saved;
+      return out;
+    });
+  }
+
+  async deleteUser(id: string, restaurantId: string) {
+    if (!restaurantId) {
+      throw new BadRequestException('restaurantId (tenant) is required');
     }
-
-    Object.assign(user, updateUserDto);
-    return this.userRepository.save(user);
+    await this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantUser);
+      const user = await repo.findOne({ where: { id } });
+      if (!user) throw new NotFoundException('User not found');
+      await repo.softDelete(id);
+    });
   }
 
-  async deleteUser(id: string): Promise<void> {
-    const user = await this.findUserById(id);
-    await this.userRepository.softDelete(id);
+  async toggleUserStatus(id: string, restaurantId: string) {
+    if (!restaurantId) {
+      throw new BadRequestException('restaurantId (tenant) is required');
+    }
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      const repo = manager.getRepository(TenantUser);
+      const user = await repo.findOne({ where: { id } });
+      if (!user) throw new NotFoundException('User not found');
+      user.isActive = !user.isActive;
+      const saved = await repo.save(user);
+      const { passwordHash, ...out } = saved;
+      return out;
+    });
   }
 
-  async toggleUserStatus(id: string): Promise<User> {
-    const user = await this.findUserById(id);
-    user.isActive = !user.isActive;
-    return this.userRepository.save(user);
-  }
-
-  // System Statistics
   async getSystemStats() {
-    const [
-      totalRestaurants,
-      totalUsers,
-      totalCategories,
-      totalProducts,
-      totalTables,
-      totalOrders,
-      activeRestaurants,
-      activeUsers,
-    ] = await Promise.all([
-      this.restaurantRepository.count({ where: { deletedAt: IsNull() } }),
-      this.userRepository.count({ where: { deletedAt: IsNull() } }),
-      this.categoryRepository.count({ where: { deletedAt: IsNull() } }),
-      this.productRepository.count({ where: { deletedAt: IsNull() } }),
-      this.tableRepository.count({ where: { deletedAt: IsNull() } }),
-      this.orderRepository.count({ where: { deletedAt: IsNull() } }),
-      this.restaurantRepository.count({ where: { isActive: true, deletedAt: IsNull() } }),
-      this.userRepository.count({ where: { isActive: true, deletedAt: IsNull() } }),
+    const [totalRestaurants, activeRestaurants] = await Promise.all([
+      this.tenantRepository.count({ where: { deletedAt: IsNull() } }),
+      this.tenantRepository.count({ where: { isActive: true, deletedAt: IsNull() } }),
     ]);
-
     return {
       totalRestaurants,
-      totalUsers,
-      totalCategories,
-      totalProducts,
-      totalTables,
-      totalOrders,
+      totalUsers: 0,
+      totalCategories: 0,
+      totalProducts: 0,
+      totalTables: 0,
+      totalOrders: 0,
       activeRestaurants,
-      activeUsers,
+      activeUsers: 0,
     };
   }
 }

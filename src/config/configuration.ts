@@ -28,6 +28,8 @@ export interface AppConfig {
     logLevel: string;
     logFormat: string;
     apiBaseUrl: string;
+    /** Hostnames where super_admin login is allowed (platform root). Comma-separated in env. */
+    rootDomains: string[];
 }
 
 export interface SecurityConfig {
@@ -48,6 +50,14 @@ export default registerAs('app', () => ({
     logFormat: process.env.LOG_FORMAT || 'combined',
     apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:4500',
 
+    // Root domain(s) for platform admin (super_admin login allowed only from these hosts)
+    rootDomains: process.env.APP_ROOT_DOMAIN
+        ? process.env.APP_ROOT_DOMAIN
+            .split(',')
+            .map((h: string) => h.trim().replace(/^https?:\/\//, '').split(':')[0])
+            .filter(Boolean)
+        : ['localhost', '127.0.0.1'],
+
     // Database Configuration
     database: {
         host: process.env.DB_HOST || 'localhost',
@@ -61,15 +71,13 @@ export default registerAs('app', () => ({
     cors: {
         origin: process.env.CORS_ORIGIN
             ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
-            : process.env.NODE_ENV === 'production'
-                ? ['*'] // Production: allow all origins if not set (set CORS_ORIGIN to restrict)
-                : ['http://localhost:3000', 'http://localhost:3001'],
+            : [],
         methods: process.env.CORS_METHODS
             ? process.env.CORS_METHODS.split(',').map(method => method.trim())
             : ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
         allowedHeaders: process.env.CORS_ALLOWED_HEADERS
             ? process.env.CORS_ALLOWED_HEADERS.split(',').map(header => header.trim())
-            : ['Content-Type', 'Authorization', 'Accept', 'X-Restaurant-ID', 'x-restaurant-id'],
+            : ['Content-Type', 'Authorization', 'Accept', 'X-Tenant-Domain', 'x-tenant-domain', 'X-Client-Host', 'x-client-host'],
         credentials: process.env.CORS_CREDENTIALS !== 'false',
     },
 

@@ -1,20 +1,28 @@
+/**
+ * Multi-tenant seed: only seeds public.platform_users (superadmin).
+ * Does NOT create tenant tables in public schema.
+ * Tenants are created via API/UI; each gets a new schema (e.g. t_xxx) with its own tables.
+ * Usage: yarn seed:multi-tenant (or use seed:superadmin for the same effect).
+ */
+
 import { DataSource, DataSourceOptions } from 'typeorm';
 import { config } from 'dotenv';
-import { MultiTenantSeed } from '../src/seeds/multi-tenant-seed';
-import { Product } from '../src/entities/product.entity';
-import { Category } from '../src/entities/category.entity';
-import { Order, OrderItem } from '../src/entities/order.entity';
-import { ProductCategory } from '../src/entities/product-category.entity';
-import { Table } from '../src/entities/table.entity';
-import { Restaurant } from '../src/entities/restaurant.entity';
-import { User } from '../src/entities/user.entity';
-import { join } from 'path';
+import * as bcrypt from 'bcryptjs';
+import { Tenant } from '../src/entities/tenant.entity';
+import { PlatformUser } from '../src/entities/platform-user.entity';
+import {
+  TenantUser,
+  TenantCategory,
+  TenantProduct,
+  TenantProductCategory,
+  TenantTable,
+  TenantOrder,
+  TenantOrderItem,
+} from '../src/entities/tenant';
 
-// Load environment variables
 config();
 
 async function runSeed() {
-  // Create DataSourceOptions directly from environment variables
   const dataSourceOptions: DataSourceOptions = {
     type: 'postgres',
     host: process.env.DB_HOST || 'localhost',
@@ -22,22 +30,49 @@ async function runSeed() {
     username: process.env.DB_USERNAME || 'postgres',
     password: process.env.DB_PASSWORD || 'your_password',
     database: process.env.DB_DATABASE || 'sky_order',
-    entities: [Product, Category, Order, OrderItem, ProductCategory, Table, Restaurant, User],
-    migrations: [join(__dirname, '..', 'src', 'migrations', '*.{ts,js}')],
-    migrationsTableName: 'migrations',
+    entities: [
+      Tenant,
+      PlatformUser,
+      TenantUser,
+      TenantCategory,
+      TenantProduct,
+      TenantProductCategory,
+      TenantTable,
+      TenantOrder,
+      TenantOrderItem,
+    ],
     synchronize: false,
   };
-  
+
   const dataSource = new DataSource(dataSourceOptions);
 
   try {
     await dataSource.initialize();
 
-    const seed = new MultiTenantSeed(dataSource);
-    await seed.run();
+    const username = process.env.SUPERADMIN_USERNAME || 'superadmin';
+    const password = process.env.SUPERADMIN_PASSWORD || 'admin123';
+    const email = process.env.SUPERADMIN_EMAIL || 'superadmin@skyorder.com';
 
+    const repo = dataSource.getRepository(PlatformUser);
+    const existing = await repo.findOne({ where: { username } });
+
+    if (existing) {
+      console.log(`Superadmin "${username}" already exists in public.platform_users.`);
+    } else {
+      const passwordHash = await bcrypt.hash(password, 10);
+      await repo.save(
+        repo.create({ username, passwordHash, email, role: 'super_admin' }),
+      );
+      console.log('Superadmin created in public.platform_users.');
+    }
+
+    console.log('\nTenants are NOT seeded here. Create them via:');
+    console.log('  - Admin UI: Restaurants → Add restaurant');
+    console.log('  - POST /api/auth/create-restaurant (with super_admin token)');
+    console.log('  - POST /api/admin/restaurants (with super_admin token)');
+    console.log('Each new tenant gets a dedicated schema (e.g. t_abc12def) with its own tables.');
   } catch (error) {
-    console.error('❌ Error during seeding:', error);
+    console.error('Error during seed:', error);
     process.exit(1);
   } finally {
     await dataSource.destroy();

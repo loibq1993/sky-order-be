@@ -8,7 +8,8 @@ import {
     Delete,
     HttpCode,
     HttpStatus,
-    Res
+    Res,
+    UseGuards
 } from '@nestjs/common';
 import { Response } from 'express';
 import {
@@ -16,9 +17,13 @@ import {
     ApiOperation,
     ApiResponse,
     ApiParam,
-    ApiBody
+    ApiBody,
+    ApiBearerAuth
 } from '@nestjs/swagger';
 import { TablesService } from './tables.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 import { CreateTableDto, UpdateTableDto, TableResponseDto, GenerateQrCodesDto, TableStatus } from './tables.dto';
 import * as path from 'path';
@@ -26,6 +31,9 @@ import * as fs from 'fs';
 
 @ApiTags('tables')
 @Controller('admin/tables')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('super_admin', 'restaurant_owner', 'restaurant_manager', 'restaurant_staff')
+@ApiBearerAuth()
 export class TablesController {
     constructor(private readonly tablesService: TablesService) { }
 
@@ -45,8 +53,8 @@ export class TablesController {
     @Get()
     @ApiOperation({ summary: 'Get all tables' })
     @ApiResponse({ status: 200, description: 'Tables retrieved successfully', type: [TableResponseDto] })
-    async findAll(): Promise<TableResponseDto[]> {
-        return this.tablesService.findAll();
+    async findAll(@RestaurantId() restaurantId?: string): Promise<TableResponseDto[]> {
+        return this.tablesService.findAll(restaurantId!);
     }
 
     @Get(':id')
@@ -54,8 +62,8 @@ export class TablesController {
     @ApiParam({ name: 'id', description: 'Table ID' })
     @ApiResponse({ status: 200, description: 'Table found', type: TableResponseDto })
     @ApiResponse({ status: 404, description: 'Table not found' })
-    async findOne(@Param('id') id: string): Promise<TableResponseDto> {
-        return this.tablesService.findOne(id);
+    async findOne(@Param('id') id: string, @RestaurantId() restaurantId?: string): Promise<TableResponseDto> {
+        return this.tablesService.findOne(id, restaurantId!);
     }
 
     @Get('number/:tableNumber')
@@ -90,8 +98,8 @@ export class TablesController {
     @ApiParam({ name: 'id', description: 'Table ID' })
     @ApiResponse({ status: 200, description: 'Table deleted successfully' })
     @ApiResponse({ status: 404, description: 'Table not found' })
-    async remove(@Param('id') id: string): Promise<{ message: string }> {
-        return this.tablesService.remove(id);
+    async remove(@Param('id') id: string, @RestaurantId() restaurantId?: string): Promise<{ message: string }> {
+        return this.tablesService.remove(id, restaurantId!);
     }
 
     @Post('generate-qr-codes')
@@ -162,9 +170,10 @@ export class TablesController {
     @ApiResponse({ status: 200, description: 'Table status updated successfully', type: TableResponseDto })
     async updateStatus(
         @Param('id') id: string,
-        @Body() body: { status: TableStatus }
+        @Body() body: { status: TableStatus },
+        @RestaurantId() restaurantId?: string,
     ): Promise<TableResponseDto> {
-        return this.tablesService.updateTableStatus(id, body.status);
+        return this.tablesService.updateTableStatus(id, body.status, restaurantId!);
     }
 
     @Get('qr/:tableNumber')
@@ -172,9 +181,12 @@ export class TablesController {
     @ApiParam({ name: 'tableNumber', description: 'Table number' })
     @ApiResponse({ status: 200, description: 'QR code image' })
     @ApiResponse({ status: 404, description: 'QR code not found' })
-    async serveQrCode(@Param('tableNumber') tableNumber: string, @Res() res: Response) {
-        // Find table by table number to get the qrUuid
-        const table = await this.tablesService.findByTableNumber(parseInt(tableNumber, 10));
+    async serveQrCode(
+        @Param('tableNumber') tableNumber: string,
+        @Res() res: Response,
+        @RestaurantId() restaurantId?: string,
+    ) {
+        const table = await this.tablesService.findByTableNumber(parseInt(tableNumber, 10), restaurantId!);
 
         if (!table.qrUuid) {
             return res.status(404).json({

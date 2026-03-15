@@ -7,12 +7,15 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
-import { User } from '../entities/user.entity';
-import { Restaurant } from '../entities/restaurant.entity';
+import { PlatformUser } from '../entities/platform-user.entity';
+import { Tenant } from '../entities/tenant.entity';
+import { TenantModule } from '../tenant/tenant.module';
+import { ResolveTenantFromDomainGuard } from './guards/resolve-tenant-from-domain.guard';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Restaurant]),
+    TypeOrmModule.forFeature([PlatformUser, Tenant]),
+    TenantModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -25,7 +28,7 @@ import { Restaurant } from '../entities/restaurant.entity';
       inject: [ConfigService],
     }),
   ],
-  providers: [AuthService, JwtStrategy, LocalStrategy],
+  providers: [AuthService, JwtStrategy, LocalStrategy, ResolveTenantFromDomainGuard],
   controllers: [AuthController],
   exports: [AuthService],
 })

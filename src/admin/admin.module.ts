@@ -4,26 +4,17 @@ import { AdminController } from './admin.controller';
 import { ClientRestaurantsController } from './client-restaurants.controller';
 import { RestaurantSettingsController } from './restaurant-settings.controller';
 import { AdminService } from './admin.service';
-import { Restaurant } from '../entities/restaurant.entity';
-import { User } from '../entities/user.entity';
-import { Category } from '../entities/category.entity';
-import { Product } from '../entities/product.entity';
-import { Order } from '../entities/order.entity';
-import { Table } from '../entities/table.entity';
+import { Tenant } from '../entities/tenant.entity';
+import { TenantModule } from '../tenant/tenant.module';
+import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      Restaurant,
-      User,
-      Category,
-      Product,
-      Order,
-      Table,
-    ]),
+    TypeOrmModule.forFeature([Tenant]),
+    TenantModule,
   ],
   controllers: [AdminController, RestaurantSettingsController, ClientRestaurantsController],
-  providers: [AdminService],
+  providers: [AdminService, ResolveTenantFromDomainGuard],
   exports: [AdminService],
 })
 export class AdminModule {}

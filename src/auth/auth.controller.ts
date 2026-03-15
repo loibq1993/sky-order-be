@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards, Request, Patch } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, Request, Patch, UnauthorizedException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -6,6 +6,7 @@ import { RegisterDto } from './dto/register.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
+import { ResolveTenantFromDomainGuard } from './guards/resolve-tenant-from-domain.guard';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -13,21 +14,31 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  @UseGuards(ResolveTenantFromDomainGuard)
   @ApiOperation({ summary: 'User login (admin/staff)' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  @ApiResponse({ status: 401, description: 'Super admin must use platform URL' })
   async login(@Body() loginDto: LoginDto, @Request() req) {
     loginDto.ip = req.ip;
+    (loginDto as any).tenantIdFromDomain = (req as any).restaurantIdFromDomain;
+    (loginDto as any).hostForTenantResolution = req.headers?.['x-client-host'] ?? req.headers?.['x-tenant-domain'] ?? req.headers?.host;
     return this.authService.login(loginDto);
   }
 
   @Post('customer/login')
+  @UseGuards(ResolveTenantFromDomainGuard)
   @ApiOperation({ summary: 'Customer login only (client app); rejects staff/super_admin' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   @ApiResponse({ status: 403, description: 'Not a customer; use admin login' })
   async loginAsCustomer(@Body() loginDto: LoginDto, @Request() req) {
     loginDto.ip = req.ip;
+    (loginDto as any).tenantIdFromDomain = (req as any).restaurantIdFromDomain;
+    if (!loginDto.tenantId) {
+      (loginDto as any).tenantId = (req as any).restaurantIdFromDomain;
+    }
+    (loginDto as any).hostForTenantResolution = req.headers?.['x-client-host'] ?? req.headers?.['x-tenant-domain'] ?? req.headers?.host;
     return this.authService.loginAsCustomer(loginDto);
   }
 
@@ -46,7 +57,10 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Profile retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getProfile(@Request() req) {
-    return this.authService.getProfile(req.user.userId);
+    const user = await this.authService.getProfile(req.user.userId, req.user.restaurantId ?? null);
+    if (!user) throw new UnauthorizedException();
+    const { tenant, ...rest } = user;
+    return { ...rest, restaurant: tenant ?? null };
   }
 
   @Patch('change-password')
@@ -64,6 +78,7 @@ export class AuthController {
       req.user.userId,
       body.oldPassword,
       body.newPassword,
+      req.user.restaurantId ?? null,
     );
   }
 

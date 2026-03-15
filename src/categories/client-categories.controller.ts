@@ -2,6 +2,7 @@ import {
     Controller,
     Get,
     Param,
+    UseGuards,
     UseInterceptors,
     ClassSerializerInterceptor
 } from '@nestjs/common';
@@ -14,9 +15,11 @@ import {
 import { CategoriesService } from './categories.service';
 import { CategoryResponseDto } from './categories.dto';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
+import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
 
 @ApiTags('categories-client')
 @Controller('client/categories')
+@UseGuards(ResolveTenantFromDomainGuard)
 @UseInterceptors(ClassSerializerInterceptor)
 export class ClientCategoriesController {
     constructor(private readonly categoriesService: CategoriesService) { }

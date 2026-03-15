@@ -5,6 +5,7 @@ import {
     Body,
     Param,
     Patch,
+    UseGuards,
     UseInterceptors,
     ClassSerializerInterceptor,
     HttpCode,
@@ -19,9 +20,12 @@ import {
 } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto, UpdateOrderDto, OrderResponseDto } from './orders.dto';
+import { RestaurantId } from '../auth/decorators/restaurant.decorator';
+import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
 
 @ApiTags('orders-client')
 @Controller('client/orders')
+@UseGuards(ResolveTenantFromDomainGuard)
 @UseInterceptors(ClassSerializerInterceptor)
 export class ClientOrdersController {
     constructor(private readonly ordersService: OrdersService) { }
@@ -32,8 +36,11 @@ export class ClientOrdersController {
     @ApiBody({ type: CreateOrderDto })
     @ApiResponse({ status: 201, description: 'Order created successfully', type: OrderResponseDto })
     @ApiResponse({ status: 400, description: 'Bad request' })
-    async createOrder(@Body() createOrderDto: CreateOrderDto): Promise<OrderResponseDto> {
-        return this.ordersService.createOrder(createOrderDto);
+    async createOrder(
+        @Body() createOrderDto: CreateOrderDto,
+        @RestaurantId() restaurantId: string,
+    ): Promise<OrderResponseDto> {
+        return this.ordersService.createOrder(createOrderDto, restaurantId);
     }
 
     @Get('number/:orderNumber')
@@ -41,8 +48,11 @@ export class ClientOrdersController {
     @ApiParam({ name: 'orderNumber', description: 'Order number' })
     @ApiResponse({ status: 200, description: 'Order found', type: OrderResponseDto })
     @ApiResponse({ status: 404, description: 'Order not found' })
-    async findByOrderNumber(@Param('orderNumber') orderNumber: string): Promise<OrderResponseDto> {
-        return this.ordersService.findByOrderNumber(orderNumber);
+    async findByOrderNumber(
+        @Param('orderNumber') orderNumber: string,
+        @RestaurantId() restaurantId: string,
+    ): Promise<OrderResponseDto> {
+        return this.ordersService.findByOrderNumber(orderNumber, restaurantId);
     }
 
     @Get(':id')
@@ -50,8 +60,11 @@ export class ClientOrdersController {
     @ApiParam({ name: 'id', description: 'Order ID' })
     @ApiResponse({ status: 200, description: 'Order found', type: OrderResponseDto })
     @ApiResponse({ status: 404, description: 'Order not found' })
-    async findOne(@Param('id') id: string): Promise<OrderResponseDto> {
-        return this.ordersService.findOne(id);
+    async findOne(
+        @Param('id') id: string,
+        @RestaurantId() restaurantId: string,
+    ): Promise<OrderResponseDto> {
+        return this.ordersService.findOne(id, restaurantId);
     }
 
     @Patch(':id')
@@ -60,8 +73,12 @@ export class ClientOrdersController {
     @ApiBody({ type: UpdateOrderDto })
     @ApiResponse({ status: 200, description: 'Order updated successfully', type: OrderResponseDto })
     @ApiResponse({ status: 404, description: 'Order not found' })
-    async updateOrder(@Param('id') id: string, @Body() updateOrderDto: UpdateOrderDto): Promise<OrderResponseDto> {
-        return this.ordersService.updateOrder(id, updateOrderDto);
+    async updateOrder(
+        @Param('id') id: string,
+        @Body() updateOrderDto: UpdateOrderDto,
+        @RestaurantId() restaurantId: string,
+    ): Promise<OrderResponseDto> {
+        return this.ordersService.updateOrder(id, updateOrderDto, restaurantId);
     }
 
     @Get('table/:tableId/active')
@@ -69,15 +86,21 @@ export class ClientOrdersController {
     @ApiParam({ name: 'tableId', description: 'Table ID' })
     @ApiResponse({ status: 200, description: 'Active order for table', type: OrderResponseDto })
     @ApiResponse({ status: 404, description: 'No active order found' })
-    async getActiveOrderByTable(@Param('tableId') tableId: string): Promise<OrderResponseDto | null> {
-        return this.ordersService.getActiveOrderByTable(tableId);
+    async getActiveOrderByTable(
+        @Param('tableId') tableId: string,
+        @RestaurantId() restaurantId: string,
+    ): Promise<OrderResponseDto | null> {
+        return this.ordersService.getActiveOrderByTable(tableId, restaurantId);
     }
 
     @Get('table/:tableId/unpaid')
     @ApiOperation({ summary: 'Get unpaid orders by table (Client)' })
     @ApiParam({ name: 'tableId', description: 'Table ID' })
     @ApiResponse({ status: 200, description: 'List of unpaid orders for table', type: [OrderResponseDto] })
-    async getUnpaidOrdersByTable(@Param('tableId') tableId: string): Promise<OrderResponseDto[]> {
-        return this.ordersService.getUnpaidOrdersByTable(tableId);
+    async getUnpaidOrdersByTable(
+        @Param('tableId') tableId: string,
+        @RestaurantId() restaurantId: string,
+    ): Promise<OrderResponseDto[]> {
+        return this.ordersService.getUnpaidOrdersByTable(tableId, restaurantId);
     }
 } 

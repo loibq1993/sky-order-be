@@ -26,6 +26,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 
 @ApiTags('Admin')
 @Controller('admin')
@@ -153,8 +154,13 @@ export class AdminController {
   @ApiOperation({ summary: 'Get user by ID' })
   @ApiResponse({ status: 200, description: 'User retrieved successfully' })
   @ApiResponse({ status: 404, description: 'User not found' })
-  async findUserById(@Param('id', ParseUUIDPipe) id: string) {
-    return this.adminService.findUserById(id);
+  async findUserById(
+    @Param('id', ParseUUIDPipe) id: string,
+    @RestaurantId() restaurantId?: string,
+    @Query('restaurantId') restaurantIdQuery?: string,
+  ) {
+    const tenantId = restaurantId ?? restaurantIdQuery;
+    return this.adminService.findUserById(id, tenantId!);
   }
 
   @Put('users/:id')
@@ -164,16 +170,24 @@ export class AdminController {
   async updateUser(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateUserDto: UpdateUserDto,
+    @RestaurantId() restaurantId?: string,
+    @Query('restaurantId') restaurantIdQuery?: string,
   ) {
-    return this.adminService.updateUser(id, updateUserDto);
+    const tenantId = restaurantId ?? restaurantIdQuery;
+    return this.adminService.updateUser(id, updateUserDto, tenantId!);
   }
 
   @Delete('users/:id')
   @ApiOperation({ summary: 'Delete user' })
   @ApiResponse({ status: 200, description: 'User deleted successfully' })
   @ApiResponse({ status: 404, description: 'User not found' })
-  async deleteUser(@Param('id', ParseUUIDPipe) id: string) {
-    await this.adminService.deleteUser(id);
+  async deleteUser(
+    @Param('id', ParseUUIDPipe) id: string,
+    @RestaurantId() restaurantId?: string,
+    @Query('restaurantId') restaurantIdQuery?: string,
+  ) {
+    const tenantId = restaurantId ?? restaurantIdQuery;
+    await this.adminService.deleteUser(id, tenantId!);
     return { message: 'User deleted successfully' };
   }
 
@@ -184,7 +198,12 @@ export class AdminController {
     description: 'User status toggled successfully',
   })
   @ApiResponse({ status: 404, description: 'User not found' })
-  async toggleUserStatus(@Param('id', ParseUUIDPipe) id: string) {
-    return this.adminService.toggleUserStatus(id);
+  async toggleUserStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @RestaurantId() restaurantId?: string,
+    @Query('restaurantId') restaurantIdQuery?: string,
+  ) {
+    const tenantId = restaurantId ?? restaurantIdQuery;
+    return this.adminService.toggleUserStatus(id, tenantId!);
   }
 }
