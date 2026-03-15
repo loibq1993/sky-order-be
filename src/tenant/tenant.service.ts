@@ -154,6 +154,7 @@ export class TenantService {
       schemaName,
       customDomain: customDomain ?? null,
       isActive: true,
+      settings: dto.settings ?? { homeTheme: 'default' },
     });
     const saved = await this.tenantRepository.save(tenant) as Tenant;
 
