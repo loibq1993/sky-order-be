@@ -40,7 +40,6 @@ export class AdminService {
       address: dto.address,
       phone: dto.phone,
       email: dto.email,
-      website: dto.website,
       customDomain: dto.customDomain,
       timezone: dto.timezone,
       currency: dto.currency,

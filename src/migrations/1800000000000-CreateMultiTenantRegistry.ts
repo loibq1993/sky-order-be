@@ -24,7 +24,6 @@ export class CreateMultiTenantRegistry1800000000000 implements MigrationInterfac
         address character varying(200),
         phone character varying(20),
         email character varying(100),
-        website character varying(200),
         "customDomain" character varying(200),
         timezone character varying(50),
         currency character varying(10),

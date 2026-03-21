@@ -36,6 +36,13 @@ export class ResolveTenantFromDomainGuard implements CanActivate {
     let domain: string | undefined =
       request.headers['x-tenant-domain'] || request.headers['X-Tenant-Domain'];
     if (!domain || ResolveTenantFromDomainGuard.isBlankId(domain)) {
+      const xClient = request.headers['x-client-host'] || request.headers['X-Client-Host'];
+      const xc = typeof xClient === 'string' ? xClient : Array.isArray(xClient) ? xClient[0] : undefined;
+      if (xc && !ResolveTenantFromDomainGuard.isBlankId(xc)) {
+        domain = xc;
+      }
+    }
+    if (!domain || ResolveTenantFromDomainGuard.isBlankId(domain)) {
       const origin = request.headers['origin'] || request.headers['Origin'];
       const referer = request.headers['referer'] || request.headers['Referer'];
       if (origin) {

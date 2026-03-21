@@ -17,3 +17,30 @@ export function normalizeDomain(value: string | undefined | null): string {
   const withoutProtocol = trimmed.replace(/^https?:\/\//i, '').split('/')[0] ?? '';
   return withoutProtocol.trim();
 }
+
+/** Host phần trước ":" (dev: không hỗ trợ IPv6 trong customDomain). */
+export function domainHostOnly(normalized: string): string {
+  if (!normalized) return '';
+  return normalized.split(':')[0] ?? '';
+}
+
+/**
+ * Hai domain đã normalize có cùng tenant không.
+ * - Khớp tuyệt đối: `a.com` = `a.com`, `a.com:3000` = `a.com:3000`
+ * - Dev / local: DB lưu `host:3000` nhưng browser chỉ gửi `host` → vẫn khớp
+ * - Hai bên cùng host nhưng port khác nhau (cả hai có port) → không khớp
+ */
+export function domainMatchesTenantLookup(storedRaw: string | null | undefined, queryNormalized: string): boolean {
+  if (!storedRaw || !queryNormalized) return false;
+  const s = normalizeDomain(storedRaw);
+  if (!s) return false;
+  if (s === queryNormalized) return true;
+  const sh = domainHostOnly(s);
+  const qh = domainHostOnly(queryNormalized);
+  if (!sh || sh !== qh) return false;
+  const sPort = s.includes(':');
+  const qPort = queryNormalized.includes(':');
+  if (!qPort && sPort) return true;
+  if (qPort && !sPort) return true;
+  return false;
+}

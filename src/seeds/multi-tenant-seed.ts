@@ -43,7 +43,7 @@ export class MultiTenantSeed {
       address: '123 Main Street, Ho Chi Minh City',
       phone: '+84 28 1234 5678',
       email: 'info@skyorder.com',
-      website: 'https://skyorder.com',
+      customDomain: 'skyorder.com',
       timezone: 'Asia/Ho_Chi_Minh',
       currency: 'VND',
       language: 'vi',

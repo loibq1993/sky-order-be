@@ -16,6 +16,7 @@ import { TenantSchemaService } from '../tenant/tenant-schema.service';
 import { TenantService } from '../tenant/tenant.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { normalizeDomain } from '../utils/domain';
 
 export type AuthUser = {
   id: string;
@@ -107,7 +108,7 @@ export class AuthService {
       tenantId,
     );
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Tài khoản hoặc mật khẩu không đúng');
     }
     if (user.role !== 'customer') {
       throw new ForbiddenException('Use the admin login page for staff accounts');
@@ -151,11 +152,16 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto) {
-    const hostHeader = (loginDto as any).hostForTenantResolution as string | undefined;
-    const hostname = hostHeader?.split(':')[0]?.trim() ?? '';
+    const normalized = normalizeDomain((loginDto as any).hostForTenantResolution as string | undefined);
+    const hostname = normalized.split(':')[0] ?? '';
     const rootDomains: string[] = this.configService.get('app.rootDomains') ?? ['localhost', '127.0.0.1'];
-    const isRootDomain = hostname && rootDomains.some((r: string) => r.trim().toLowerCase() === hostname.toLowerCase());
-
+    /** Platform host: APP_ROOT_DOMAIN hoặc `admin.{root}` */
+    const isRootDomain =
+      !!hostname &&
+      rootDomains.some((r: string) => {
+        const root = r.trim().toLowerCase();
+        return hostname === root || hostname === `admin.${root}`;
+      });
     if (isRootDomain) {
       // Platform root: allow super_admin and tenant users (with tenantId from domain or body)
       const tenantId = loginDto.tenantId ?? (loginDto as any).tenantIdFromDomain;
@@ -165,16 +171,41 @@ export class AuthService {
         tenantId,
       );
       if (!user) {
-        throw new UnauthorizedException('Invalid credentials');
+        throw new UnauthorizedException('Tài khoản hoặc mật khẩu không đúng');
       }
       return this.loginWithUser(user, loginDto);
     }
 
     // Non-root: treat as tenant domain; only allow tenant users, block super_admin
     const tenantFromDomain = hostname ? await this.tenantService.findByDomain(hostname) : null;
-    if (!tenantFromDomain) {
+    let tenantId = tenantFromDomain?.id ?? null;
+
+    const tenantIdFromGuard = (loginDto as any).tenantIdFromDomain as string | undefined;
+    if (!tenantId && tenantIdFromGuard) {
+      try {
+        const t = await this.tenantService.findPublicById(tenantIdFromGuard);
+        tenantId = t.id;
+      } catch {
+        tenantId = null;
+      }
+    }
+
+    if (!tenantId && loginDto.tenantId) {
+      try {
+        const t = await this.tenantService.findPublicById(loginDto.tenantId);
+        tenantId = t.id;
+      } catch {
+        tenantId = null;
+      }
+    }
+
+    if (tenantFromDomain?.id && loginDto.tenantId && tenantFromDomain.id !== loginDto.tenantId) {
+      throw new UnauthorizedException('Tenant mismatch for this domain');
+    }
+
+    if (!tenantId) {
       throw new UnauthorizedException(
-        'Super admin login is only allowed from the platform root domain. Use the root URL or sign in with a tenant account.',
+        'Could not resolve tenant for this domain. Register the custom domain in restaurant settings, use the platform root URL for super admin, or sign in with a tenant account.',
       );
     }
 
@@ -192,10 +223,10 @@ export class AuthService {
     const user = await this.validateTenantUserOnly(
       loginDto.username,
       loginDto.password,
-      tenantFromDomain.id,
+      tenantId,
     );
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Tài khoản hoặc mật khẩu không đúng');
     }
     return this.loginWithUser(user, loginDto);
   }
@@ -289,7 +320,7 @@ export class AuthService {
       address: restaurantData.address,
       phone: restaurantData.phone,
       email: restaurantData.email,
-      website: restaurantData.website,
+      customDomain: restaurantData.customDomain,
       timezone: restaurantData.timezone,
       currency: restaurantData.currency,
       language: restaurantData.language,

@@ -37,9 +37,6 @@ export class Restaurant {
     @Column({ type: 'varchar', length: 100, nullable: true })
     email: string;
 
-    @Column({ type: 'varchar', length: 200, nullable: true })
-    website: string;
-
     @Column({ type: 'varchar', length: 200, nullable: true, unique: true })
     customDomain: string;
 

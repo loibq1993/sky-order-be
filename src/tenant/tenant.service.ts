@@ -3,7 +3,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { Tenant } from '../entities/tenant.entity';
 import { TenantUser } from '../entities/tenant/tenant-user.entity';
-import { getRootDomain, slugify, normalizeDomain } from '../utils/domain';
+import {
+  getRootDomain,
+  slugify,
+  normalizeDomain,
+  domainHostOnly,
+  domainMatchesTenantLookup,
+} from '../utils/domain';
 import { getTenantSchemaSql } from './tenant-schema.sql';
 import { TenantSchemaService } from './tenant-schema.service';
 import * as bcrypt from 'bcryptjs';
@@ -18,7 +24,6 @@ export interface CreateTenantDto {
   address?: string;
   phone?: string;
   email?: string;
-  website?: string;
   customDomain?: string;
   timezone?: string;
   currency?: string;
@@ -55,13 +60,18 @@ export class TenantService {
     return tenant;
   }
 
-  /** Resolve tenant by domain (host or host:port). Tries exact match, then host without port so "edu.vn:3000" matches tenant with customDomain "edu.vn". */
+  /**
+   * Resolve tenant by domain (host or host:port).
+   * - Khớp exact; nếu query có port thì thử thêm bản không port.
+   * - DB có `host:3000` mà request chỉ có `host` → vẫn tìm được (domainMatchesTenantLookup).
+   */
   async findByDomain(domain: string): Promise<Tenant | null> {
+    if (!domain) return null;
     const normalized = normalizeDomain(domain);
     if (!normalized) return null;
     let tenant = await this.findByDomainExact(normalized);
     if (!tenant && normalized.includes(':')) {
-      const hostOnly = normalized.split(':')[0];
+      const hostOnly = domainHostOnly(normalized);
       if (hostOnly) tenant = await this.findByDomainExact(hostOnly);
     }
     return tenant ?? null;
@@ -72,18 +82,9 @@ export class TenantService {
       where: { customDomain: normalized, deletedAt: IsNull() },
     });
     if (!tenant) {
-      tenant = await this.tenantRepository.findOne({
-        where: { website: normalized, deletedAt: IsNull() },
-      });
-    }
-    if (!tenant) {
       const all = await this.tenantRepository.find({ where: { deletedAt: IsNull() } });
       tenant =
-        all.find(
-          (t) =>
-            (t.website && normalizeDomain(t.website) === normalized) ||
-            (t.customDomain && normalizeDomain(t.customDomain) === normalized),
-        ) ?? null;
+        all.find((t) => domainMatchesTenantLookup(t.customDomain, normalized)) ?? null;
     }
     return tenant ?? null;
   }
@@ -139,24 +140,26 @@ export class TenantService {
       throw new BadRequestException('Tenant name already exists');
     }
 
-    const domainFromWebsite = dto.website?.replace(/^https?:\/\//i, '').split('/')[0]?.trim();
-    let customDomain = dto.customDomain;
-    if (!customDomain && domainFromWebsite) {
-      customDomain = domainFromWebsite;
-    } else if (!customDomain) {
-      customDomain = await this.generateUniqueSubdomain(dto.name);
-    }
+    /** Storefront host: customDomain hoặc subdomain tự sinh từ tên quán. */
+    const stripHost = (value?: string) => {
+      const t = value?.trim();
+      if (!t) return '';
+      const n = normalizeDomain(t);
+      return n || t.replace(/^https?:\/\//i, '').split('/')[0]?.trim() || '';
+    };
+    let resolvedDomain =
+      stripHost(dto.customDomain) || (await this.generateUniqueSubdomain(dto.name));
 
     const schemaName = await this.ensureUniqueSchemaName();
 
     const tenant = this.tenantRepository.create({
       ...dto,
       schemaName,
-      customDomain: customDomain ?? null,
+      customDomain: resolvedDomain,
       isActive: true,
       settings: dto.settings ?? { homeTheme: 'default' },
     });
-    const saved = await this.tenantRepository.save(tenant) as Tenant;
+    const saved = await this.tenantRepository.save(tenant);
 
     try {
       const sqls = getTenantSchemaSql(saved.schemaName);
@@ -183,7 +186,20 @@ export class TenantService {
 
   async updateTenant(id: string, dto: Partial<CreateTenantDto>): Promise<Tenant> {
     const tenant = await this.findById(id);
-    Object.assign(tenant, dto);
+    const patch: Record<string, unknown> = { ...dto };
+
+    const toHost = (value: string): string | null => {
+      const t = value.trim();
+      if (!t) return null;
+      const n = normalizeDomain(t);
+      return n || t.replace(/^https?:\/\//i, '').split('/')[0]?.trim() || null;
+    };
+
+    if (dto.customDomain !== undefined) {
+      patch.customDomain = toHost(dto.customDomain ?? '');
+    }
+
+    Object.assign(tenant, patch);
     return this.tenantRepository.save(tenant);
   }
 

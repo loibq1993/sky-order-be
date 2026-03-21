@@ -47,12 +47,7 @@ export class CreateRestaurantDto {
   @IsEmail()
   email?: string;
 
-  @ApiProperty({ description: 'Restaurant website', required: false })
-  @IsOptional()
-  @IsString()
-  website?: string;
-
-  @ApiProperty({ description: 'Restaurant custom domain', required: false })
+  @ApiProperty({ description: 'Restaurant custom domain (storefront host)', required: false })
   @IsOptional()
   @IsString()
   customDomain?: string;

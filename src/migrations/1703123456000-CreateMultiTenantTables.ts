@@ -17,7 +17,6 @@ export class CreateMultiTenantTables1703123456000 implements MigrationInterface 
         \`address\` VARCHAR(200) NULL,
         \`phone\` VARCHAR(20) NULL,
         \`email\` VARCHAR(100) NULL,
-        \`website\` VARCHAR(200) NULL,
         \`timezone\` VARCHAR(50) NULL,
         \`currency\` VARCHAR(10) NULL,
         \`language\` VARCHAR(10) NULL,

@@ -23,7 +23,6 @@ export class InitialPostgresSchema1699000000000 implements MigrationInterface {
         "address" character varying(200),
         "phone" character varying(20),
         "email" character varying(100),
-        "website" character varying(200),
         "customDomain" character varying(200) UNIQUE,
         "timezone" character varying(50),
         "currency" character varying(10),
