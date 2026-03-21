@@ -1,5 +1,7 @@
 node_modules
 dist
+# Incremental TS cache từ máy host → tsc trong Docker có thể không emit, không tạo dist/
+*.tsbuildinfo
 .git
 .gitignore
 .env
