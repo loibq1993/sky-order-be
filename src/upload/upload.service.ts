@@ -276,11 +276,17 @@ export class UploadService {
         };
     }
 
+    /** Bỏ BOM, trim — tránh data: không nhận ra do ký tự ẩn đầu chuỗi */
+    private sanitizeImageUrlInput(raw: string): string {
+        if (typeof raw !== 'string') return '';
+        return raw.replace(/^\uFEFF/, '').trim();
+    }
+
     /**
      * Parse data:image/...;base64,... → buffer (chỉ ảnh hỗ trợ).
      */
     private parseDataUrlImage(dataUrl: string): { contentType: string; buf: Buffer } {
-        const trimmed = dataUrl.trim();
+        const trimmed = this.sanitizeImageUrlInput(dataUrl);
         if (!trimmed.toLowerCase().startsWith('data:')) {
             throw new BadRequestException('URL ảnh không hợp lệ');
         }
@@ -315,28 +321,41 @@ export class UploadService {
      */
     async saveImageFromUrl(imageUrl: string, folder: string = 'products'): Promise<UploadResult> {
         this.validateFolder(folder);
-        const trimmed = imageUrl.trim();
+        const trimmed = this.sanitizeImageUrlInput(imageUrl);
+        if (!trimmed) {
+            throw new BadRequestException('URL ảnh không hợp lệ');
+        }
 
         if (trimmed.toLowerCase().startsWith('data:')) {
             const { contentType, buf } = this.parseDataUrlImage(trimmed);
             return this.persistImageBuffer(buf, contentType, folder);
         }
 
+        /** Node `new URL('example.com/path')` throw — cần http(s):// */
+        let toFetch = trimmed;
+        if (!/^https?:\/\//i.test(toFetch)) {
+            toFetch = `https://${toFetch.replace(/^\/+/, '')}`;
+        }
+
         let parsed: URL;
         try {
-            parsed = new URL(trimmed);
+            parsed = new URL(toFetch);
         } catch {
-            throw new BadRequestException('URL ảnh không hợp lệ');
+            throw new BadRequestException(
+                'URL ảnh không hợp lệ: dùng http(s):// hoặc data:image/...;base64,...',
+            );
         }
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
             throw new BadRequestException('Chỉ chấp nhận URL http(s) hoặc data:image/...;base64,...');
         }
 
+        const fetchUrl = parsed.href;
+
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 30000);
         let response: Response;
         try {
-            response = await fetch(trimmed, {
+            response = await fetch(fetchUrl, {
                 redirect: 'follow',
                 signal: controller.signal,
                 headers: {
