@@ -22,12 +22,13 @@ export class UploadImageDto {
 /** Tải ảnh từ URL công khai (http/https), lưu vào temp hoặc products */
 export class ImageFromUrlDto {
     @ApiProperty({
-        description: 'URL ảnh công khai (http/https)',
+        description: 'URL ảnh công khai (http/https); signed URL có thể rất dài',
         example: 'https://example.com/dish.jpg',
     })
     @IsString()
     @IsNotEmpty()
-    @MaxLength(2048)
+    /** Signed / CDN URL + query thường > 2k ký tự */
+    @MaxLength(16384)
     url: string;
 
     @ApiPropertyOptional({
