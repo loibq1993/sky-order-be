@@ -1,7 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import * as path from 'path';
 import * as fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 export interface UploadResult {
@@ -200,6 +199,111 @@ export class UploadService {
     // Move file từ temp sang folder chính thức (public method)
     async moveFromTemp(filename: string, toFolder: string): Promise<UploadResult> {
         return this.moveFile(filename, 'temp', toFolder);
+    }
+
+    /**
+     * Tải ảnh từ URL công khai, kiểm tra MIME/size, lưu vào products (local hoặc S3).
+     * Dùng cho import menu từ Excel.
+     */
+    async saveImageFromUrl(imageUrl: string, folder: string = 'products'): Promise<UploadResult> {
+        this.validateFolder(folder);
+        const trimmed = imageUrl.trim();
+        let parsed: URL;
+        try {
+            parsed = new URL(trimmed);
+        } catch {
+            throw new BadRequestException('URL ảnh không hợp lệ');
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            throw new BadRequestException('Chỉ chấp nhận URL http(s)');
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+        let response: Response;
+        try {
+            response = await fetch(trimmed, {
+                redirect: 'follow',
+                signal: controller.signal,
+                headers: {
+                    'User-Agent': 'SkyOrder-MenuImport/1.0',
+                    Accept: 'image/*,*/*;q=0.8',
+                },
+            });
+        } finally {
+            clearTimeout(timeout);
+        }
+
+        if (!response.ok) {
+            throw new BadRequestException(`Tải ảnh thất bại: HTTP ${response.status}`);
+        }
+
+        const rawCt = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+        let contentType = rawCt;
+        if (!this.allowedMimeTypes.includes(contentType)) {
+            if (contentType === 'image/jpg') contentType = 'image/jpeg';
+            if (!this.allowedMimeTypes.includes(contentType)) {
+                throw new BadRequestException(
+                    `Định dạng ảnh không hỗ trợ: ${rawCt || 'unknown'} (chỉ jpg, png, gif, webp)`,
+                );
+            }
+        }
+
+        const buf = Buffer.from(await response.arrayBuffer());
+        if (buf.length === 0) {
+            throw new BadRequestException('File tải về rỗng');
+        }
+        if (buf.length > this.maxFileSize) {
+            throw new BadRequestException('Ảnh vượt quá 5MB');
+        }
+
+        const extMap: Record<string, string> = {
+            'image/jpeg': '.jpg',
+            'image/jpg': '.jpg',
+            'image/png': '.png',
+            'image/gif': '.gif',
+            'image/webp': '.webp',
+        };
+        const ext = extMap[contentType] || '.jpg';
+        const filename = this.generateUniqueFilename(`import${ext}`);
+
+        this.ensureAllFoldersExist();
+
+        if (this.isS3Enabled()) {
+            const key = `${folder}/${filename}`;
+            const client = this.getS3Client();
+            const acl = process.env.AWS_S3_ACL || 'public-read';
+            await client.send(
+                new PutObjectCommand({
+                    Bucket: process.env.AWS_S3_BUCKET,
+                    Key: key,
+                    Body: buf,
+                    ContentType: contentType,
+                    ACL: acl as any,
+                }),
+            );
+            return {
+                filename,
+                originalName: filename,
+                size: buf.length,
+                mimetype: contentType,
+                url: this.buildS3Url(key),
+                path: key,
+            };
+        }
+
+        const uploadPath = this.getUploadPath(folder);
+        const filePath = path.join(uploadPath, filename);
+        fs.writeFileSync(filePath, buf);
+        const publicUrl = `/upload/${folder}/${filename}`;
+        return {
+            filename,
+            originalName: filename,
+            size: buf.length,
+            mimetype: contentType,
+            url: publicUrl,
+            path: publicUrl,
+        };
     }
 
     // Xóa file

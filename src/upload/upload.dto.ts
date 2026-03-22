@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsEnum } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsString, IsOptional, IsEnum, IsNotEmpty, MaxLength } from 'class-validator';
 
 export enum UploadFolder {
     TEMP = 'temp',
@@ -13,6 +13,27 @@ export class UploadImageDto {
         description: 'Folder lưu ảnh',
         enum: UploadFolder,
         default: UploadFolder.TEMP
+    })
+    @IsOptional()
+    @IsEnum(UploadFolder)
+    folder?: UploadFolder;
+}
+
+/** Tải ảnh từ URL công khai (http/https), lưu vào temp hoặc products */
+export class ImageFromUrlDto {
+    @ApiProperty({
+        description: 'URL ảnh công khai (http/https)',
+        example: 'https://example.com/dish.jpg',
+    })
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(2048)
+    url: string;
+
+    @ApiPropertyOptional({
+        description: 'Thư mục lưu (mặc định products — khỏi cần move từ temp khi tạo món)',
+        enum: UploadFolder,
+        default: UploadFolder.PRODUCTS,
     })
     @IsOptional()
     @IsEnum(UploadFolder)

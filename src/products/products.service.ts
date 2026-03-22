@@ -327,28 +327,54 @@ export class ProductsService {
     includeDeleted: boolean = false,
     categoryId?: string,
     restaurantId?: string,
+    /** Lọc theo tên / mô tả (ILIKE), khớp với query param `search` từ admin menu */
+    search?: string,
+    /** Lọc còn hàng / hết hàng — khớp với query param `available` */
+    available?: boolean,
   ) {
     if (!restaurantId) {
       return { products: [], total: 0, page, limit, totalPages: 0 };
     }
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
       const repo = manager.getRepository(TenantProduct);
-      const where: any = includeDeleted ? {} : { deletedAt: IsNull() };
-      if (categoryId) where.categoryId = categoryId;
-      const [products, total] = await repo.findAndCount({
-        where,
-        relations: ['categoryRelation'],
-        order: { createdAt: 'ASC' },
-        skip: (page - 1) * limit,
-        take: limit,
-        ...(includeDeleted && { withDeleted: true }),
-      });
+      const term = search?.trim();
+
+      let qb = repo
+        .createQueryBuilder('product')
+        .leftJoinAndSelect('product.categoryRelation', 'category');
+
+      if (includeDeleted) {
+        qb = qb.withDeleted();
+      } else {
+        qb = qb.andWhere('product.deletedAt IS NULL');
+      }
+
+      if (categoryId) {
+        qb = qb.andWhere('product.categoryId = :categoryId', { categoryId });
+      }
+
+      if (available !== undefined && available !== null) {
+        qb = qb.andWhere('product.available = :av', { av: available });
+      }
+
+      if (term) {
+        const q = `%${term}%`;
+        qb = qb.andWhere(
+          '(product.name ILIKE :q OR product.nameKo ILIKE :q OR product.description ILIKE :q OR COALESCE(product.descriptionKo, \'\') ILIKE :q)',
+          { q },
+        );
+      }
+
+      qb.orderBy('product.createdAt', 'ASC').skip((page - 1) * limit).take(limit);
+
+      const [products, total] = await qb.getManyAndCount();
+
       return {
         products: products.map((p) => this.mapToResponseDto(p)),
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
+        totalPages: limit > 0 ? Math.ceil(total / limit) : 0,
       };
     });
   }

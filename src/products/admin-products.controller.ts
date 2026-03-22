@@ -67,6 +67,17 @@ export class AdminProductsController {
         description: 'Include soft deleted products',
         type: Boolean
     })
+    @ApiQuery({
+        name: 'search',
+        required: false,
+        description: 'Tìm theo tên / tên Hàn / mô tả (không phân biệt hoa thường)',
+    })
+    @ApiQuery({
+        name: 'available',
+        required: false,
+        description: 'Lọc còn hàng (true) hoặc hết hàng (false)',
+        type: Boolean,
+    })
     @ApiResponse({
         status: 200,
         description: 'Products retrieved successfully with pagination info'
@@ -76,6 +87,8 @@ export class AdminProductsController {
         @Query('limit') limit?: string,
         @Query('categoryId') categoryId?: string,
         @Query('includeDeleted') includeDeleted?: string,
+        @Query('search') search?: string,
+        @Query('available') available?: string,
         @RestaurantId() restaurantId?: string
     ): Promise<{
         products: ProductResponseDto[];
@@ -87,10 +100,30 @@ export class AdminProductsController {
         const pageNumber = page ? parseInt(page, 10) : 1;
         const limitNumber = limit ? parseInt(limit, 10) : 10;
 
+        let availableFilter: boolean | undefined;
+        if (available === 'true') availableFilter = true;
+        else if (available === 'false') availableFilter = false;
+
         if (includeDeleted === 'true') {
-            return this.productsService.findAllForAdminPaginated(pageNumber, limitNumber, true, categoryId, restaurantId);
+            return this.productsService.findAllForAdminPaginated(
+                pageNumber,
+                limitNumber,
+                true,
+                categoryId,
+                restaurantId,
+                search,
+                availableFilter,
+            );
         }
-        return this.productsService.findAllForAdminPaginated(pageNumber, limitNumber, false, categoryId, restaurantId);
+        return this.productsService.findAllForAdminPaginated(
+            pageNumber,
+            limitNumber,
+            false,
+            categoryId,
+            restaurantId,
+            search,
+            availableFilter,
+        );
     }
 
     @Get('category/:categoryId')

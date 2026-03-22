@@ -25,7 +25,7 @@ import {
     ApiExtraModels
 } from '@nestjs/swagger';
 import { UploadService, UploadResult } from './upload.service';
-import { UploadImageDto, UploadImageFormDto } from './upload.dto';
+import { UploadImageDto, UploadImageFormDto, ImageFromUrlDto, UploadFolder } from './upload.dto';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -96,6 +96,30 @@ export class UploadController {
             success: true,
             message: 'Upload ảnh thành công',
             data: result
+        };
+    }
+
+    @Post('image-from-url')
+    @ApiOperation({
+        summary: 'Tải ảnh từ URL',
+        description:
+            'Tải ảnh từ địa chỉ http(s), kiểm tra MIME/kích thước, lưu local hoặc S3. Dùng cho form món (ảnh đã ở folder products thì không cần move từ temp).',
+    })
+    @ApiBody({ type: ImageFromUrlDto })
+    @ApiResponse({
+        status: 201,
+        description: 'Tải và lưu ảnh thành công',
+    })
+    async uploadImageFromUrl(
+        @Body() body: ImageFromUrlDto,
+    ): Promise<{ success: boolean; message: string; data: UploadResult }> {
+        const folder = body.folder ?? UploadFolder.PRODUCTS;
+        const result = await this.uploadService.saveImageFromUrl(body.url, folder);
+
+        return {
+            success: true,
+            message: 'Đã tải ảnh từ URL',
+            data: result,
         };
     }
 
