@@ -201,57 +201,27 @@ export class UploadService {
         return this.moveFile(filename, 'temp', toFolder);
     }
 
-    /**
-     * Tải ảnh từ URL công khai, kiểm tra MIME/size, lưu vào products (local hoặc S3).
-     * Dùng cho import menu từ Excel.
-     */
-    async saveImageFromUrl(imageUrl: string, folder: string = 'products'): Promise<UploadResult> {
-        this.validateFolder(folder);
-        const trimmed = imageUrl.trim();
-        let parsed: URL;
-        try {
-            parsed = new URL(trimmed);
-        } catch {
-            throw new BadRequestException('URL ảnh không hợp lệ');
-        }
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            throw new BadRequestException('Chỉ chấp nhận URL http(s)');
-        }
-
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000);
-        let response: Response;
-        try {
-            response = await fetch(trimmed, {
-                redirect: 'follow',
-                signal: controller.signal,
-                headers: {
-                    'User-Agent': 'SkyOrder-MenuImport/1.0',
-                    Accept: 'image/*,*/*;q=0.8',
-                },
-            });
-        } finally {
-            clearTimeout(timeout);
-        }
-
-        if (!response.ok) {
-            throw new BadRequestException(`Tải ảnh thất bại: HTTP ${response.status}`);
-        }
-
-        const rawCt = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    /** Chuẩn hóa MIME + kiểm tra allowed */
+    private normalizeImageContentType(raw: string): string {
+        const rawCt = raw.split(';')[0].trim().toLowerCase();
         let contentType = rawCt;
+        if (contentType === 'image/jpg') contentType = 'image/jpeg';
         if (!this.allowedMimeTypes.includes(contentType)) {
-            if (contentType === 'image/jpg') contentType = 'image/jpeg';
-            if (!this.allowedMimeTypes.includes(contentType)) {
-                throw new BadRequestException(
-                    `Định dạng ảnh không hỗ trợ: ${rawCt || 'unknown'} (chỉ jpg, png, gif, webp)`,
-                );
-            }
+            throw new BadRequestException(
+                `Định dạng ảnh không hỗ trợ: ${rawCt || 'unknown'} (chỉ jpg, png, gif, webp)`,
+            );
         }
+        return contentType;
+    }
 
-        const buf = Buffer.from(await response.arrayBuffer());
+    /** Lưu buffer ảnh đã kiểm tra kích thước (local hoặc S3) */
+    private async persistImageBuffer(
+        buf: Buffer,
+        contentType: string,
+        folder: string,
+    ): Promise<UploadResult> {
         if (buf.length === 0) {
-            throw new BadRequestException('File tải về rỗng');
+            throw new BadRequestException('File ảnh rỗng');
         }
         if (buf.length > this.maxFileSize) {
             throw new BadRequestException('Ảnh vượt quá 5MB');
@@ -304,6 +274,89 @@ export class UploadService {
             url: publicUrl,
             path: publicUrl,
         };
+    }
+
+    /**
+     * Parse data:image/...;base64,... → buffer (chỉ ảnh hỗ trợ).
+     */
+    private parseDataUrlImage(dataUrl: string): { contentType: string; buf: Buffer } {
+        const trimmed = dataUrl.trim();
+        if (!trimmed.toLowerCase().startsWith('data:')) {
+            throw new BadRequestException('URL ảnh không hợp lệ');
+        }
+        const commaIdx = trimmed.indexOf(',');
+        if (commaIdx === -1) {
+            throw new BadRequestException('Data URL không hợp lệ (thiếu dữ liệu sau dấu phẩy)');
+        }
+        const header = trimmed.slice(0, commaIdx);
+        const payload = trimmed.slice(commaIdx + 1);
+        if (!/;base64/i.test(header)) {
+            throw new BadRequestException('Chỉ hỗ trợ ảnh data URL dạng ;base64,');
+        }
+        const mimeMatch = /^data:([^;]+)/i.exec(header);
+        const rawMime = (mimeMatch?.[1] || 'image/jpeg').trim().toLowerCase();
+        let contentType = this.normalizeImageContentType(rawMime);
+
+        let buf: Buffer;
+        try {
+            buf = Buffer.from(payload.replace(/\s/g, ''), 'base64');
+        } catch {
+            throw new BadRequestException('Base64 không hợp lệ');
+        }
+        if (buf.length === 0) {
+            throw new BadRequestException('Giải mã base64 ảnh rỗng');
+        }
+        return { contentType, buf };
+    }
+
+    /**
+     * Tải ảnh từ URL công khai (http/https), hoặc data:image/...;base64,... (paste từ clipboard).
+     * Kiểm tra MIME/size, lưu vào folder (local hoặc S3).
+     */
+    async saveImageFromUrl(imageUrl: string, folder: string = 'products'): Promise<UploadResult> {
+        this.validateFolder(folder);
+        const trimmed = imageUrl.trim();
+
+        if (trimmed.toLowerCase().startsWith('data:')) {
+            const { contentType, buf } = this.parseDataUrlImage(trimmed);
+            return this.persistImageBuffer(buf, contentType, folder);
+        }
+
+        let parsed: URL;
+        try {
+            parsed = new URL(trimmed);
+        } catch {
+            throw new BadRequestException('URL ảnh không hợp lệ');
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            throw new BadRequestException('Chỉ chấp nhận URL http(s) hoặc data:image/...;base64,...');
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+        let response: Response;
+        try {
+            response = await fetch(trimmed, {
+                redirect: 'follow',
+                signal: controller.signal,
+                headers: {
+                    'User-Agent': 'SkyOrder-MenuImport/1.0',
+                    Accept: 'image/*,*/*;q=0.8',
+                },
+            });
+        } finally {
+            clearTimeout(timeout);
+        }
+
+        if (!response.ok) {
+            throw new BadRequestException(`Tải ảnh thất bại: HTTP ${response.status}`);
+        }
+
+        const rawCt = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+        const contentType = this.normalizeImageContentType(rawCt);
+
+        const buf = Buffer.from(await response.arrayBuffer());
+        return this.persistImageBuffer(buf, contentType, folder);
     }
 
     // Xóa file

@@ -27,8 +27,8 @@ export class ImageFromUrlDto {
     })
     @IsString()
     @IsNotEmpty()
-    /** Signed / CDN URL + query thường > 2k ký tự */
-    @MaxLength(16384)
+    /** http(s), hoặc data:image/...;base64,... — khớp giới hạn body JSON (~12MB) */
+    @MaxLength(13_000_000)
     url: string;
 
     @ApiPropertyOptional({

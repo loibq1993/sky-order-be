@@ -35,9 +35,9 @@ async function bootstrap() {
     exposedHeaders: ['X-Tenant-Domain', 'x-tenant-domain'],
   });
 
-  // Increase payload limits for base64 images in JSON bodies
-  app.use(express.json({ limit: '5mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+  // data:image/jpeg;base64,... có thể ~7MB chuỗi cho ảnh 5MB
+  app.use(express.json({ limit: '12mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 
   // Set global prefix for all routes
   app.setGlobalPrefix('api');
