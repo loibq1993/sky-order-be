@@ -331,6 +331,9 @@ export class ProductsService {
     search?: string,
     /** Lọc còn hàng / hết hàng — khớp với query param `available` */
     available?: boolean,
+    /** Sắp xếp: created | updated | sales (mặc định updated) */
+    sortBy: 'created' | 'updated' | 'sales' = 'updated',
+    sortOrder: 'ASC' | 'DESC' = 'DESC',
   ) {
     if (!restaurantId) {
       return { products: [], total: 0, page, limit, totalPages: 0 };
@@ -365,7 +368,17 @@ export class ProductsService {
         );
       }
 
-      qb.orderBy('product.createdAt', 'ASC').skip((page - 1) * limit).take(limit);
+      const dir: 'ASC' | 'DESC' = sortOrder === 'ASC' ? 'ASC' : 'DESC';
+      if (sortBy === 'created') {
+        qb = qb.orderBy('product.createdAt', dir);
+      } else if (sortBy === 'sales') {
+        qb = qb.orderBy('product.sales', dir);
+      } else {
+        qb = qb.orderBy('product.updatedAt', dir);
+      }
+      qb = qb.addOrderBy('product.id', 'ASC');
+
+      qb = qb.skip((page - 1) * limit).take(limit);
 
       const [products, total] = await qb.getManyAndCount();
 

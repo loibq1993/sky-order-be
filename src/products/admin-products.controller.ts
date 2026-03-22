@@ -78,6 +78,18 @@ export class AdminProductsController {
         description: 'Lọc còn hàng (true) hoặc hết hàng (false)',
         type: Boolean,
     })
+    @ApiQuery({
+        name: 'sortBy',
+        required: false,
+        description: 'Sắp xếp: created | updated | sales',
+        enum: ['created', 'updated', 'sales'],
+    })
+    @ApiQuery({
+        name: 'sortOrder',
+        required: false,
+        description: 'ASC hoặc DESC (mặc định DESC)',
+        enum: ['ASC', 'DESC'],
+    })
     @ApiResponse({
         status: 200,
         description: 'Products retrieved successfully with pagination info'
@@ -89,6 +101,8 @@ export class AdminProductsController {
         @Query('includeDeleted') includeDeleted?: string,
         @Query('search') search?: string,
         @Query('available') available?: string,
+        @Query('sortBy') sortBy?: string,
+        @Query('sortOrder') sortOrder?: string,
         @RestaurantId() restaurantId?: string
     ): Promise<{
         products: ProductResponseDto[];
@@ -104,6 +118,12 @@ export class AdminProductsController {
         if (available === 'true') availableFilter = true;
         else if (available === 'false') availableFilter = false;
 
+        const sortRaw = (sortBy || 'updated').toLowerCase();
+        const sortByNorm: 'created' | 'updated' | 'sales' =
+            sortRaw === 'created' || sortRaw === 'sales' ? sortRaw : 'updated';
+        const sortOrderNorm: 'ASC' | 'DESC' =
+            (sortOrder || '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
         if (includeDeleted === 'true') {
             return this.productsService.findAllForAdminPaginated(
                 pageNumber,
@@ -113,6 +133,8 @@ export class AdminProductsController {
                 restaurantId,
                 search,
                 availableFilter,
+                sortByNorm,
+                sortOrderNorm,
             );
         }
         return this.productsService.findAllForAdminPaginated(
@@ -123,6 +145,8 @@ export class AdminProductsController {
             restaurantId,
             search,
             availableFilter,
+            sortByNorm,
+            sortOrderNorm,
         );
     }
 
