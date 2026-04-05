@@ -15,11 +15,11 @@ import {
 import { CategoriesService } from './categories.service';
 import { CategoryResponseDto } from './categories.dto';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
-import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 
 @ApiTags('categories-client')
 @Controller('client/categories')
-@UseGuards(ResolveTenantFromDomainGuard)
+@UseGuards(OptionalJwtAuthGuard)
 @UseInterceptors(ClassSerializerInterceptor)
 export class ClientCategoriesController {
     constructor(private readonly categoriesService: CategoriesService) { }

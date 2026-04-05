@@ -17,11 +17,11 @@ import {
 import { ProductsService } from './products.service';
 import { ProductResponseDto } from './products.dto';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
-import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 
 @ApiTags('products-client')
 @Controller('client/products')
-@UseGuards(ResolveTenantFromDomainGuard)
+@UseGuards(OptionalJwtAuthGuard)
 @UseInterceptors(ClassSerializerInterceptor)
 export class ClientProductsController {
     constructor(private readonly productsService: ProductsService) { }

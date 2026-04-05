@@ -32,7 +32,15 @@ import * as fs from 'fs';
 @ApiTags('tables')
 @Controller('admin/tables')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('super_admin', 'restaurant_owner', 'restaurant_manager', 'restaurant_staff')
+@Roles(
+  'super_admin',
+  'restaurant_owner',
+  'restaurant_manager',
+  'restaurant_staff',
+  'staff_reception',
+  'staff_kitchen',
+  'staff_waiter',
+)
 @ApiBearerAuth()
 export class TablesController {
     constructor(private readonly tablesService: TablesService) { }

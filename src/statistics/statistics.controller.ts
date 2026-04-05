@@ -9,7 +9,15 @@ import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 @ApiTags('Statistics')
 @Controller('admin/statistics')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('super_admin', 'restaurant_owner', 'restaurant_manager', 'restaurant_staff')
+@Roles(
+  'super_admin',
+  'restaurant_owner',
+  'restaurant_manager',
+  'restaurant_staff',
+  'staff_reception',
+  'staff_kitchen',
+  'staff_waiter',
+)
 @ApiBearerAuth()
 export class StatisticsController {
     constructor(private readonly statisticsService: StatisticsService) { }

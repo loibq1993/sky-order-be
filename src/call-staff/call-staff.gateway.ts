@@ -9,7 +9,15 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 
 const RESTAURANT_ROOM_PREFIX = 'restaurant:';
-const ROLES_ALLOWED = ['super_admin', 'restaurant_owner', 'restaurant_manager', 'restaurant_staff'];
+const ROLES_ALLOWED = [
+  'super_admin',
+  'restaurant_owner',
+  'restaurant_manager',
+  'restaurant_staff',
+  'staff_reception',
+  'staff_kitchen',
+  'staff_waiter',
+];
 
 export interface StaffCallPayload {
   tableNumber: string;

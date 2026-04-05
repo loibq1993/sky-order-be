@@ -3,13 +3,13 @@ import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { TablesService } from './tables.service';
 import { TableResponseDto } from './tables.dto';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
-import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { OrdersService } from '../orders/orders.service';
 import { OrderResponseDto } from '../orders/orders.dto';
 
 @ApiTags('tables-client')
 @Controller('client/tables')
-@UseGuards(ResolveTenantFromDomainGuard)
+@UseGuards(OptionalJwtAuthGuard)
 export class ClientTablesController {
   constructor(
     private readonly tablesService: TablesService,

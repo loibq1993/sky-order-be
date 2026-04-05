@@ -16,7 +16,15 @@ import { NotificationType } from '../entities/notification.entity';
 @ApiTags('notifications-admin')
 @Controller('admin/notifications')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('super_admin', 'restaurant_owner', 'restaurant_manager', 'restaurant_staff')
+@Roles(
+  'super_admin',
+  'restaurant_owner',
+  'restaurant_manager',
+  'restaurant_staff',
+  'staff_reception',
+  'staff_kitchen',
+  'staff_waiter',
+)
 @ApiBearerAuth()
 export class AdminNotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}

@@ -10,7 +10,15 @@ import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 @ApiTags('admin-orders')
 @Controller('admin/orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('super_admin', 'restaurant_owner', 'restaurant_manager', 'restaurant_staff')
+@Roles(
+  'super_admin',
+  'restaurant_owner',
+  'restaurant_manager',
+  'restaurant_staff',
+  'staff_reception',
+  'staff_kitchen',
+  'staff_waiter',
+)
 @ApiBearerAuth()
 export class AdminOrdersController {
     constructor(private readonly ordersService: OrdersService) { }

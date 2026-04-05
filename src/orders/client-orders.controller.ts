@@ -21,11 +21,11 @@ import {
 import { OrdersService } from './orders.service';
 import { CreateOrderDto, UpdateOrderDto, OrderResponseDto } from './orders.dto';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
-import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 
 @ApiTags('orders-client')
 @Controller('client/orders')
-@UseGuards(ResolveTenantFromDomainGuard)
+@UseGuards(OptionalJwtAuthGuard)
 @UseInterceptors(ClassSerializerInterceptor)
 export class ClientOrdersController {
     constructor(private readonly ordersService: OrdersService) { }
@@ -55,6 +55,29 @@ export class ClientOrdersController {
         return this.ordersService.findByOrderNumber(orderNumber, restaurantId);
     }
 
+    @Get('table/:tableId/active')
+    @ApiOperation({ summary: 'Get active order by table (Client)' })
+    @ApiParam({ name: 'tableId', description: 'Table ID' })
+    @ApiResponse({ status: 200, description: 'Active order for table', type: OrderResponseDto })
+    @ApiResponse({ status: 404, description: 'No active order found' })
+    async getActiveOrderByTable(
+        @Param('tableId') tableId: string,
+        @RestaurantId() restaurantId: string,
+    ): Promise<OrderResponseDto | null> {
+        return this.ordersService.getActiveOrderByTable(tableId, restaurantId);
+    }
+
+    @Get('table/:tableId/unpaid')
+    @ApiOperation({ summary: 'Get unpaid orders by table (Client)' })
+    @ApiParam({ name: 'tableId', description: 'Table ID' })
+    @ApiResponse({ status: 200, description: 'List of unpaid orders for the table', type: [OrderResponseDto] })
+    async getUnpaidOrdersByTable(
+        @Param('tableId') tableId: string,
+        @RestaurantId() restaurantId: string,
+    ): Promise<OrderResponseDto[]> {
+        return this.ordersService.getUnpaidOrdersByTable(tableId, restaurantId);
+    }
+
     @Get(':id')
     @ApiOperation({ summary: 'Get order by ID (Client)' })
     @ApiParam({ name: 'id', description: 'Order ID' })
@@ -79,28 +102,5 @@ export class ClientOrdersController {
         @RestaurantId() restaurantId: string,
     ): Promise<OrderResponseDto> {
         return this.ordersService.updateOrder(id, updateOrderDto, restaurantId);
-    }
-
-    @Get('table/:tableId/active')
-    @ApiOperation({ summary: 'Get active order by table (Client)' })
-    @ApiParam({ name: 'tableId', description: 'Table ID' })
-    @ApiResponse({ status: 200, description: 'Active order for table', type: OrderResponseDto })
-    @ApiResponse({ status: 404, description: 'No active order found' })
-    async getActiveOrderByTable(
-        @Param('tableId') tableId: string,
-        @RestaurantId() restaurantId: string,
-    ): Promise<OrderResponseDto | null> {
-        return this.ordersService.getActiveOrderByTable(tableId, restaurantId);
-    }
-
-    @Get('table/:tableId/unpaid')
-    @ApiOperation({ summary: 'Get unpaid orders by table (Client)' })
-    @ApiParam({ name: 'tableId', description: 'Table ID' })
-    @ApiResponse({ status: 200, description: 'List of unpaid orders for table', type: [OrderResponseDto] })
-    async getUnpaidOrdersByTable(
-        @Param('tableId') tableId: string,
-        @RestaurantId() restaurantId: string,
-    ): Promise<OrderResponseDto[]> {
-        return this.ordersService.getUnpaidOrdersByTable(tableId, restaurantId);
     }
 } 

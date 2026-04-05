@@ -1,7 +1,6 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString } from 'class-validator';
-import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 import { CallStaffService } from './call-staff.service';
 import { CallStaffGateway } from './call-staff.gateway';
@@ -16,7 +15,6 @@ class CallStaffDto {
 
 @ApiTags('call-staff-client')
 @Controller('client/call-staff')
-@UseGuards(ResolveTenantFromDomainGuard)
 export class ClientCallStaffController {
   constructor(
     private readonly callStaffService: CallStaffService,

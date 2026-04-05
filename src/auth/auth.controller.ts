@@ -6,7 +6,6 @@ import { RegisterDto } from './dto/register.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
-import { ResolveTenantFromDomainGuard } from './guards/resolve-tenant-from-domain.guard';
 import { resolveHostForTenant } from './utils/resolve-client-host';
 
 @ApiTags('Authentication')
@@ -15,7 +14,6 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
-  @UseGuards(ResolveTenantFromDomainGuard)
   @ApiOperation({ summary: 'User login (admin/staff)' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Tài khoản hoặc mật khẩu không đúng' })
@@ -28,7 +26,6 @@ export class AuthController {
   }
 
   @Post('customer/login')
-  @UseGuards(ResolveTenantFromDomainGuard)
   @ApiOperation({ summary: 'Customer login only (client app); rejects staff/super_admin' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Tài khoản hoặc mật khẩu không đúng' })

@@ -9,8 +9,6 @@ import { AdminCallStaffController } from './admin-call-staff.controller';
 import { AuthModule } from '../auth/auth.module';
 import { TenantModule } from '../tenant/tenant.module';
 import { NotificationsModule } from '../notifications/notifications.module';
-import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
-
 @Module({
   imports: [
     AuthModule,
@@ -34,7 +32,7 @@ import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from
     }),
   ],
   controllers: [ClientCallStaffController, ClientRequestPaymentController, AdminCallStaffController],
-  providers: [CallStaffService, CallStaffGateway, ResolveTenantFromDomainGuard],
+  providers: [CallStaffService, CallStaffGateway],
   exports: [CallStaffService],
 })
 export class CallStaffModule {}

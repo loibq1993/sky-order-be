@@ -261,6 +261,8 @@ export class AuthService {
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        /** Để admin FE gửi ?restaurantId / getRestaurantIdForRequest khi không khớp X-Tenant-Domain. */
+        restaurantId: user.restaurantId ?? undefined,
         restaurant: user.tenant ?? null,
       },
     };

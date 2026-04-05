@@ -1,8 +1,7 @@
-import { Controller, Get, Param, ParseUUIDPipe, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Req } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
-import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
 import { TenantService } from '../tenant/tenant.service';
 import { normalizeDomain } from '../utils/domain';
 import { Request } from 'express';
@@ -53,7 +52,6 @@ export class ClientRestaurantsController {
 
   /** Plain `:id` — regex trong path không còn hợp lệ với path-to-regexp mới (Nest/Swagger). UUID được kiểm tra bởi ParseUUIDPipe. */
   @Get(':id')
-  @UseGuards(ResolveTenantFromDomainGuard)
   @ApiOperation({ summary: 'Get restaurant (tenant) by ID (Client)' })
   @ApiParam({ name: 'id', description: 'Tenant/Restaurant UUID', format: 'uuid' })
   @ApiResponse({ status: 200, description: 'Restaurant retrieved successfully' })

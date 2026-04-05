@@ -1,7 +1,6 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString } from 'class-validator';
-import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 import { CallStaffGateway } from './call-staff.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -15,7 +14,6 @@ class RequestPaymentDto {
 
 @ApiTags('request-payment-client')
 @Controller('client/request-payment')
-@UseGuards(ResolveTenantFromDomainGuard)
 export class ClientRequestPaymentController {
   constructor(
     private readonly callStaffGateway: CallStaffGateway,

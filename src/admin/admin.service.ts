@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, Like } from 'typeorm';
@@ -245,6 +246,116 @@ export class AdminService {
       const { passwordHash, ...out } = saved;
       return out;
     });
+  }
+
+  private readonly staffLikeRoles = [
+    'restaurant_staff',
+    'staff_reception',
+    'staff_kitchen',
+    'staff_waiter',
+  ];
+
+  canTenantActorAssignRole(actorRole: string, newRole: string): boolean {
+    if (actorRole === 'super_admin') return true;
+    if (newRole === 'super_admin' || newRole === 'restaurant_owner') return false;
+    if (actorRole === 'restaurant_owner') {
+      return (
+        newRole === 'restaurant_manager' ||
+        this.staffLikeRoles.includes(newRole) ||
+        newRole === 'customer'
+      );
+    }
+    if (actorRole === 'restaurant_manager') {
+      return this.staffLikeRoles.includes(newRole) || newRole === 'customer';
+    }
+    return false;
+  }
+
+  canTenantActorManageTarget(
+    actorRole: string,
+    targetRole: string,
+    actorUserId: string,
+    targetUserId: string,
+  ): boolean {
+    if (actorRole === 'super_admin') return true;
+    if (actorUserId === targetUserId) return true;
+    if (actorRole === 'restaurant_owner') {
+      if (targetRole === 'restaurant_owner') return false;
+      return true;
+    }
+    if (actorRole === 'restaurant_manager') {
+      if (targetRole === 'restaurant_owner') return false;
+      if (targetRole === 'restaurant_manager') return false;
+      return true;
+    }
+    return false;
+  }
+
+  async createUserForTenant(
+    dto: CreateUserDto,
+    actorRole: string,
+    _actorUserId: string,
+  ) {
+    const role = dto.role || 'restaurant_staff';
+    if (!this.canTenantActorAssignRole(actorRole, role)) {
+      throw new ForbiddenException('You cannot assign this role');
+    }
+    return this.createUser({ ...dto, role });
+  }
+
+  async updateUserForTenant(
+    id: string,
+    updateUserDto: UpdateUserDto,
+    restaurantId: string,
+    actorRole: string,
+    actorUserId: string,
+  ) {
+    const existing = await this.findUserById(id, restaurantId);
+    if (!this.canTenantActorManageTarget(actorRole, existing.role, actorUserId, id)) {
+      throw new ForbiddenException('You cannot modify this user');
+    }
+    const nextRole = updateUserDto.role ?? existing.role;
+    if (updateUserDto.role !== undefined && !this.canTenantActorAssignRole(actorRole, nextRole)) {
+      throw new ForbiddenException('You cannot assign this role');
+    }
+    return this.updateUser(id, updateUserDto, restaurantId);
+  }
+
+  async deleteUserForTenant(
+    id: string,
+    restaurantId: string,
+    actorRole: string,
+    actorUserId: string,
+  ) {
+    if (id === actorUserId) {
+      throw new BadRequestException('Cannot delete your own account');
+    }
+    const existing = await this.findUserById(id, restaurantId);
+    if (!this.canTenantActorManageTarget(actorRole, existing.role, actorUserId, id)) {
+      throw new ForbiddenException('You cannot delete this user');
+    }
+    if (existing.role === 'restaurant_owner' || existing.role === 'restaurant_manager') {
+      throw new ForbiddenException(
+        'Không được xóa tài khoản chủ nhà hàng hoặc quản lý. Có thể khóa tài khoản thay vì xóa.',
+      );
+    }
+    return this.deleteUser(id, restaurantId);
+  }
+
+  async toggleUserStatusForTenant(
+    id: string,
+    restaurantId: string,
+    actorRole: string,
+    actorUserId: string,
+  ) {
+    if (id === actorUserId) {
+      throw new BadRequestException('Cannot toggle your own account status');
+    }
+    const existing = await this.findUserById(id, restaurantId);
+    if (!this.canTenantActorManageTarget(actorRole, existing.role, actorUserId, id)) {
+      throw new ForbiddenException('You cannot change this user status');
+    }
+    return this.toggleUserStatus(id, restaurantId);
   }
 
   async getSystemStats() {

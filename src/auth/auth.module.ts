@@ -10,7 +10,7 @@ import { LocalStrategy } from './strategies/local.strategy';
 import { PlatformUser } from '../entities/platform-user.entity';
 import { Tenant } from '../entities/tenant.entity';
 import { TenantModule } from '../tenant/tenant.module';
-import { ResolveTenantFromDomainGuard } from './guards/resolve-tenant-from-domain.guard';
+import { OptionalJwtAuthGuard } from './guards/optional-jwt-auth.guard';
 
 @Module({
   imports: [
@@ -28,8 +28,8 @@ import { ResolveTenantFromDomainGuard } from './guards/resolve-tenant-from-domai
       inject: [ConfigService],
     }),
   ],
-  providers: [AuthService, JwtStrategy, LocalStrategy, ResolveTenantFromDomainGuard],
+  providers: [AuthService, JwtStrategy, LocalStrategy, OptionalJwtAuthGuard],
   controllers: [AuthController],
-  exports: [AuthService],
+  exports: [AuthService, JwtModule, OptionalJwtAuthGuard],
 })
 export class AuthModule {}

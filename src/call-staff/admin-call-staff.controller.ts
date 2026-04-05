@@ -9,7 +9,15 @@ import { CallStaffService, StaffCall } from './call-staff.service';
 @ApiTags('call-staff-admin')
 @Controller('admin/call-staff')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('super_admin', 'restaurant_owner', 'restaurant_manager', 'restaurant_staff')
+@Roles(
+  'super_admin',
+  'restaurant_owner',
+  'restaurant_manager',
+  'restaurant_staff',
+  'staff_reception',
+  'staff_kitchen',
+  'staff_waiter',
+)
 @ApiBearerAuth()
 export class AdminCallStaffController {
   constructor(private readonly callStaffService: CallStaffService) {}

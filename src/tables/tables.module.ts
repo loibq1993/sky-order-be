@@ -6,12 +6,12 @@ import { TablesService } from './tables.service';
 import { QrCodeService } from './qr-code.service';
 import { TenantModule } from '../tenant/tenant.module';
 import { OrdersModule } from '../orders/orders.module';
-import { ResolveTenantFromDomainGuard } from '../auth/guards/resolve-tenant-from-domain.guard';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [TenantModule, OrdersModule],
+  imports: [TenantModule, OrdersModule, AuthModule],
   controllers: [TablesController, PublicTablesController, ClientTablesController],
-  providers: [TablesService, QrCodeService, ResolveTenantFromDomainGuard],
+  providers: [TablesService, QrCodeService],
   exports: [TablesService, QrCodeService],
 })
 export class TablesModule {} 
