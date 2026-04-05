@@ -20,6 +20,7 @@ import configuration from './config/configuration';
 import { getTypeOrmConfig } from './config/typeorm.config';
 import { AuthModule } from './auth/auth.module';
 import { ResolveTenantFromDomainGuard } from './auth/guards/resolve-tenant-from-domain.guard';
+import { CorsModule } from './cors/cors.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { ResolveTenantFromDomainGuard } from './auth/guards/resolve-tenant-from-
       useFactory: (configService: ConfigService) => getTypeOrmConfig(configService),
       inject: [ConfigService],
     }),
+    CorsModule,
     TenantModule,
     CategoriesModule,
     ProductsModule,

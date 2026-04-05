@@ -12,9 +12,11 @@ import {
 } from '../entities/tenant';
 import { TenantSchemaService } from './tenant-schema.service';
 import { TenantService } from './tenant.service';
+import { CorsModule } from '../cors/cors.module';
 
 @Module({
   imports: [
+    CorsModule,
     TypeOrmModule.forFeature([
       Tenant,
       TenantUser,

@@ -7,6 +7,7 @@ import {
 import { Server } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { socketIoCorsOrigin } from '../cors/socket-cors';
 
 const RESTAURANT_ROOM_PREFIX = 'restaurant:';
 const ROLES_ALLOWED = [
@@ -30,7 +31,7 @@ export interface RequestPaymentPayload {
 }
 
 @WebSocketGateway({
-  cors: { origin: true },
+  cors: { origin: socketIoCorsOrigin, credentials: true },
   transports: ['websocket', 'polling'],
 })
 export class CallStaffGateway implements OnGatewayConnection, OnGatewayDisconnect {

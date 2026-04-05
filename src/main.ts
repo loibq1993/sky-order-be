@@ -2,6 +2,8 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
+import { CorsAllowedOriginsService } from './cors/cors-allowed-origins.service';
+import { setCorsAllowedOriginsService } from './cors/cors-registry';
 import { setupSwagger } from './swagger.config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { IoAdapter } from '@nestjs/platform-socket.io';
@@ -12,10 +14,14 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const configService = app.get(ConfigService);
 
+  const corsOrigins = app.get(CorsAllowedOriginsService);
+  await corsOrigins.warmup();
+  setCorsAllowedOriginsService(corsOrigins);
+
   // WebSocket: Socket.IO (call-staff real-time)
   app.useWebSocketAdapter(new IoAdapter(app));
 
-  // CORS: allow any origin (no corsOriginList check), required for FE from any domain
+  const corsFromDb = configService.get<boolean>('app.cors.originFromDb') === true;
   const configuredHeaders = configService.get('app.cors.allowedHeaders') || [];
   const allowedHeaders = [
     'Content-Type',
@@ -28,11 +34,16 @@ async function bootstrap() {
     ...configuredHeaders,
   ];
   app.enableCors({
-    origin: true, // reflect request origin (any domain)
+    origin: corsFromDb
+      ? (origin, callback) => {
+          callback(null, corsOrigins.isAllowed(origin) ? origin || true : false);
+        }
+      : true,
     credentials: configService.get('app.cors.credentials') !== false,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
     allowedHeaders: [...new Set(allowedHeaders)],
     exposedHeaders: ['X-Tenant-Domain', 'x-tenant-domain'],
+    maxAge: 86400,
   });
 
   // data:image/jpeg;base64,... có thể ~7MB chuỗi cho ảnh 5MB

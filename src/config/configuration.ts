@@ -10,6 +10,8 @@ export interface DatabaseConfig {
 
 export interface CorsConfig {
     origin: string[];
+    originFromDb: boolean;
+    originCacheTtlMs: number;
     methods: string[];
     allowedHeaders: string[];
     credentials: boolean;
@@ -69,6 +71,10 @@ export default registerAs('app', () => ({
 
     // CORS Configuration
     cors: {
+        /** true = chỉ cho phép Origin trong CORS_ORIGIN + customDomain tenant trong DB (public.tenants). false = reflect mọi Origin (dev). */
+        originFromDb: process.env.CORS_ORIGIN_FROM_DB === 'true',
+        /** Làm mới cache domain tenant (ms); mặc định 60s. */
+        originCacheTtlMs: parseInt(process.env.CORS_ORIGIN_CACHE_TTL_MS || '60000', 10),
         origin: process.env.CORS_ORIGIN
             ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
             : [],

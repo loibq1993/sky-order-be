@@ -12,6 +12,7 @@ import {
 } from '../utils/domain';
 import { getTenantSchemaSql } from './tenant-schema.sql';
 import { TenantSchemaService } from './tenant-schema.service';
+import { CorsAllowedOriginsService } from '../cors/cors-allowed-origins.service';
 import * as bcrypt from 'bcryptjs';
 
 export interface CreateTenantDto {
@@ -38,6 +39,7 @@ export class TenantService {
     @InjectRepository(Tenant)
     private tenantRepository: Repository<Tenant>,
     private tenantSchemaService: TenantSchemaService,
+    private readonly corsAllowedOrigins: CorsAllowedOriginsService,
   ) {}
 
   async findById(id: string): Promise<Tenant> {
@@ -181,6 +183,7 @@ export class TenantService {
       );
     }
 
+    this.corsAllowedOrigins.invalidateCache();
     return saved;
   }
 
@@ -200,12 +203,15 @@ export class TenantService {
     }
 
     Object.assign(tenant, patch);
-    return this.tenantRepository.save(tenant);
+    const saved = await this.tenantRepository.save(tenant);
+    this.corsAllowedOrigins.invalidateCache();
+    return saved;
   }
 
   async deleteTenant(id: string): Promise<void> {
     const tenant = await this.findById(id);
     await this.tenantRepository.softDelete(id);
+    this.corsAllowedOrigins.invalidateCache();
   }
 
   async seedOwner(
