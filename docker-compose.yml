@@ -7,7 +7,7 @@
 # Lần đầu: chờ yarn install trong container xong. Thêm dependency mới: docker compose exec backend yarn add ...
 # Image production (Dockerfile): dùng khi deploy CI/CD, không dùng bởi service backend bên dưới.
 #
-# Seed one-off: docker compose run --rm seed
+# Seed one-off: docker compose --profile seed run --rm seed
 # Env: copy .env.example to .env
 #
 # Socket.IO: port 4500, path /socket.io
@@ -49,6 +49,9 @@ services:
       - sky-order-be
 
   seed:
+    # Không đưa vào profile "mặc định" — tránh `docker compose up --build` bắt buộc có Dockerfile.seed.
+    profiles:
+      - seed
     build:
       context: .
       dockerfile: Dockerfile.seed
