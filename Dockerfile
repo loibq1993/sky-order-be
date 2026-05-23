@@ -1,6 +1,11 @@
 # Backend API (Modular Monolith) - NestJS
 FROM node:20-alpine AS base
 
+# Compose dev (bind-mount .:/app): build với —target devel để có corepack, tránh corepack enable mỗi lần container start (EACCES khi non-root).
+FROM base AS devel
+RUN corepack enable
+WORKDIR /app
+
 # Build stage
 FROM base AS builder
 WORKDIR /app

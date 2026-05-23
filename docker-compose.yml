@@ -1,11 +1,11 @@
 # Backend: NestJS API + PostgreSQL — MÔI TRƯỜNG DEV (mount source, watch).
-# Run from sky-order-be/: docker compose up -d
+# Run from sky-order-be/: docker compose up -d --build
 #
 # Production (image build sẵn, node dist/main.js): docker compose -f docker-compose.prod.yml up -d --build
 #
 # Source được mount vào container — sửa code không cần build lại image backend.
 # Lần đầu: chờ yarn install trong container xong. Thêm dependency mới: docker compose exec backend yarn add ...
-# Image production (Dockerfile): dùng khi deploy CI/CD, không dùng bởi service backend bên dưới.
+# Image dev-compose: Dockerfile target `devel` (+ mount .:/app). Production: docker-compose.prod.yml (stage runner).
 #
 # Seed one-off: docker compose --profile seed run --rm seed
 # Env: copy .env.example to .env
@@ -14,7 +14,11 @@
 
 services:
   backend:
-    image: node:20-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: devel
+    image: sky-order-be:dev
     working_dir: /app
     env_file:
       - .env
@@ -39,7 +43,7 @@ services:
       - backend_public:/app/public
     # Không dùng nest start --watch trong Docker: hook spawn node trước khi tsc ghi dist → MODULE_NOT_FOUND.
     # start:dev:docker = nest build --watch (compile) + nodemon chạy dist/main.js (ổn định trên bind mount).
-    command: sh -c "corepack enable && yarn install && yarn start:dev:docker"
+    command: sh -c "yarn install && yarn start:dev:docker"
     ports:
       - "4500:4500"
     depends_on:
