@@ -389,6 +389,24 @@ export class OrderResponseDto {
         example: '2023-01-01T00:00:00.000Z'
     })
     updatedAt: Date;
+
+    @ApiPropertyOptional({
+        description: 'Payment status',
+        example: 'unpaid',
+        enum: ['unpaid', 'processing', 'paid', 'failed'],
+    })
+    paymentStatus?: string;
+
+    @ApiPropertyOptional({
+        description: 'Payment method',
+        example: 'stripe',
+    })
+    paymentMethod?: string;
+
+    @ApiPropertyOptional({
+        description: 'When the order was paid',
+    })
+    paidAt?: Date;
 }
 
 export class UpdateOrderStatusDto {

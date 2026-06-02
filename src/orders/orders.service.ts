@@ -437,6 +437,9 @@ export class OrdersService {
       actualDeliveryTime: order.actualDeliveryTime ?? undefined,
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
+      paymentStatus: order.paymentStatus ?? 'unpaid',
+      paymentMethod: order.paymentMethod ?? undefined,
+      paidAt: order.paidAt ?? undefined,
     };
   }
 }

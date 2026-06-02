@@ -47,7 +47,16 @@ async function bootstrap() {
   });
 
   // data:image/jpeg;base64,... có thể ~7MB chuỗi cho ảnh 5MB
-  app.use(express.json({ limit: '12mb' }));
+  app.use(
+    express.json({
+      limit: '12mb',
+      verify: (req: express.Request & { rawBody?: Buffer }, _res, buf) => {
+        if (req.originalUrl?.includes('/payments/stripe/webhook')) {
+          req.rawBody = buf;
+        }
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 
   // Set global prefix for all routes

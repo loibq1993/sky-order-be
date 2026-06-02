@@ -44,6 +44,13 @@ export interface FileUploadConfig {
     uploadPath: string;
 }
 
+export interface StripeConfig {
+    secretKey: string;
+    webhookSecret: string;
+    currency: string;
+    frontendUrl: string;
+}
+
 export default registerAs('app', () => ({
     // Application Configuration
     port: parseInt(process.env.PORT || '4500', 10),
@@ -105,5 +112,13 @@ export default registerAs('app', () => ({
     fileUpload: {
         maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '5242880', 10), // 5MB
         uploadPath: process.env.UPLOAD_PATH || './uploads',
+    },
+
+    // Stripe Payment
+    stripe: {
+        secretKey: process.env.STRIPE_SECRET_KEY || '',
+        webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
+        currency: (process.env.STRIPE_CURRENCY || 'vnd').toLowerCase(),
+        frontendUrl: (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, ''),
     },
 })); 

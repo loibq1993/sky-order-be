@@ -1,0 +1,86 @@
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import Stripe from 'stripe';
+
+@Injectable()
+export class StripeService {
+  private readonly stripe: Stripe | null;
+  private readonly currency: string;
+  private readonly frontendUrl: string;
+
+  constructor(private readonly configService: ConfigService) {
+    const secretKey = this.configService.get<string>('app.stripe.secretKey') || '';
+    this.currency = this.configService.get<string>('app.stripe.currency') || 'vnd';
+    this.frontendUrl = this.configService.get<string>('app.stripe.frontendUrl') || 'http://localhost:3000';
+    this.stripe = secretKey ? new Stripe(secretKey) : null;
+  }
+
+  isConfigured(): boolean {
+    return this.stripe !== null;
+  }
+
+  getCurrency(): string {
+    return this.currency;
+  }
+
+  getFrontendUrl(): string {
+    return this.frontendUrl;
+  }
+
+  getWebhookSecret(): string {
+    return this.configService.get<string>('app.stripe.webhookSecret') || '';
+  }
+
+  private client(): Stripe {
+    if (!this.stripe) {
+      throw new ServiceUnavailableException('Stripe is not configured (STRIPE_SECRET_KEY missing)');
+    }
+    return this.stripe;
+  }
+
+  /** VND and other zero-decimal currencies: amount is in whole units. */
+  toStripeAmount(total: number): number {
+    const rounded = Math.round(Number(total));
+    return Math.max(rounded, 1);
+  }
+
+  async createCheckoutSession(params: {
+    orderId: string;
+    orderNumber: string;
+    restaurantId: string;
+    amount: number;
+    lineItems: Stripe.Checkout.SessionCreateParams.LineItem[];
+    tableNumber?: number;
+  }): Promise<Stripe.Checkout.Session> {
+    const stripe = this.client();
+    const successUrl = `${this.frontendUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${this.frontendUrl}/payment/cancel?order_id=${params.orderId}`;
+
+    return stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: params.lineItems,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      client_reference_id: params.orderId,
+      metadata: {
+        orderId: params.orderId,
+        orderNumber: params.orderNumber,
+        restaurantId: params.restaurantId,
+        tableNumber: params.tableNumber != null ? String(params.tableNumber) : '',
+      },
+    });
+  }
+
+  async retrieveSession(sessionId: string): Promise<Stripe.Checkout.Session> {
+    return this.client().checkout.sessions.retrieve(sessionId);
+  }
+
+  constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {
+    const secret = this.getWebhookSecret();
+    if (!secret) {
+      throw new ServiceUnavailableException('STRIPE_WEBHOOK_SECRET is not configured');
+    }
+    return this.client().webhooks.constructEvent(payload, signature, secret);
+  }
+}

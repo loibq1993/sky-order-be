@@ -15,6 +15,7 @@ import { AdminModule } from './admin/admin.module';
 import { CallStaffModule } from './call-staff/call-staff.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { MenuImportModule } from './menu-import/menu-import.module';
+import { PaymentsModule } from './payments/payments.module';
 import { ImagesController } from './images.controller';
 import configuration from './config/configuration';
 import { getTypeOrmConfig } from './config/typeorm.config';
@@ -46,6 +47,7 @@ import { CorsModule } from './cors/cors.module';
     CallStaffModule,
     NotificationsModule,
     MenuImportModule,
+    PaymentsModule,
   ],
   controllers: [AppController, ImagesController],
   providers: [

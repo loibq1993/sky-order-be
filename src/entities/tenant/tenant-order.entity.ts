@@ -62,6 +62,21 @@ export class TenantOrder {
   @Column({ type: 'timestamp', nullable: true })
   actualDeliveryTime: Date | null;
 
+  @Column({ type: 'varchar', length: 20, default: 'unpaid' })
+  paymentStatus: string;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  paymentMethod: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  stripeCheckoutSessionId: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  stripePaymentIntentId: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  paidAt: Date | null;
+
   @CreateDateColumn({ type: 'timestamp' })
   createdAt: Date;
 
