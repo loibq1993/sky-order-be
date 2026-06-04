@@ -77,6 +77,15 @@ export class TenantOrder {
   @Column({ type: 'timestamp', nullable: true })
   paidAt: Date | null;
 
+  @Column({ type: 'uuid', nullable: true })
+  voucherId: string | null;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  voucherCode: string | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  voucherDiscount: number;
+
   @CreateDateColumn({ type: 'timestamp' })
   createdAt: Date;
 

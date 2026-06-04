@@ -84,6 +84,11 @@ export class AdminOrdersController {
         @Body() updateStatusDto: UpdateOrderStatusDto,
         @RestaurantId() restaurantId?: string
     ) {
-        return this.ordersService.updateOrderStatus(id, updateStatusDto.status, restaurantId);
+        return this.ordersService.updateOrderStatus(
+            id,
+            updateStatusDto.status,
+            restaurantId,
+            updateStatusDto.paymentMethod,
+        );
     }
 } 

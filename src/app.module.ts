@@ -16,6 +16,9 @@ import { CallStaffModule } from './call-staff/call-staff.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { MenuImportModule } from './menu-import/menu-import.module';
 import { PaymentsModule } from './payments/payments.module';
+import { VouchersModule } from './vouchers/vouchers.module';
+import { PromotionsModule } from './promotions/promotions.module';
+import { CombosModule } from './combos/combos.module';
 import { ImagesController } from './images.controller';
 import configuration from './config/configuration';
 import { getTypeOrmConfig } from './config/typeorm.config';
@@ -48,6 +51,9 @@ import { CorsModule } from './cors/cors.module';
     NotificationsModule,
     MenuImportModule,
     PaymentsModule,
+    VouchersModule,
+    PromotionsModule,
+    CombosModule,
   ],
   controllers: [AppController, ImagesController],
   providers: [

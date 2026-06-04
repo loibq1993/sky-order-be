@@ -9,10 +9,13 @@ import { TenantCategory } from '../entities/tenant/tenant-category.entity';
 import { TenantOrderItem } from '../entities/tenant/tenant-order-item.entity';
 import { TenantSchemaService } from '../tenant/tenant-schema.service';
 import { UploadService } from '../upload/upload.service';
+import { PromotionsService } from '../promotions/promotions.service';
+import { ResolvedPromotion } from '../promotions/promotion-pricing';
 import {
   CreateProductDto,
   UpdateProductDto,
   ProductResponseDto,
+  ProductPromotionInfoDto,
 } from './products.dto';
 
 @Injectable()
@@ -20,6 +23,7 @@ export class ProductsService {
   constructor(
     private tenantSchemaService: TenantSchemaService,
     private uploadService: UploadService,
+    private promotionsService: PromotionsService,
   ) {}
 
   async create(
@@ -69,7 +73,7 @@ export class ProductsService {
         order: { createdAt: 'ASC' },
       });
       const counts = await this.getOrderCounts(manager);
-      return products.map((p) => this.mapToResponseDto(p, counts[p.id] ?? 0));
+      return this.mapProductsWithPromotions(manager, products, counts);
     });
   }
 
@@ -94,8 +98,9 @@ export class ProductsService {
         take: limit,
       });
       const counts = await this.getOrderCounts(manager);
+      const mapped = await this.mapProductsWithPromotions(manager, products, counts);
       return {
-        products: products.map((p) => this.mapToResponseDto(p, counts[p.id] ?? 0)),
+        products: mapped,
         total,
         page,
         limit,
@@ -114,7 +119,7 @@ export class ProductsService {
         order: { createdAt: 'ASC' },
       });
       const counts = await this.getOrderCounts(manager);
-      return products.map((p) => this.mapToResponseDto(p, counts[p.id] ?? 0));
+      return this.mapProductsWithPromotions(manager, products, counts);
     });
   }
 
@@ -142,7 +147,8 @@ export class ProductsService {
         relations: ['categoryRelation'],
       });
       if (!product) throw new NotFoundException(`Product with ID ${id} not found`);
-      return this.mapToResponseDto(product);
+      const [dto] = await this.mapProductsWithPromotions(manager, [product]);
+      return dto;
     });
   }
 
@@ -253,7 +259,7 @@ export class ProductsService {
         .orderBy('product.createdAt', 'ASC')
         .getMany();
       const counts = await this.getOrderCounts(manager);
-      return products.map((p) => this.mapToResponseDto(p, counts[p.id] ?? 0));
+      return this.mapProductsWithPromotions(manager, products, counts);
     });
   }
 
@@ -282,7 +288,7 @@ export class ProductsService {
         take: limit,
       });
       const counts = await this.getOrderCounts(manager);
-      return products.map((p) => this.mapToResponseDto(p, counts[p.id] ?? 0));
+      return this.mapProductsWithPromotions(manager, products, counts);
     });
   }
 
@@ -429,14 +435,19 @@ export class ProductsService {
     return out;
   }
 
-  private mapToResponseDto(product: TenantProduct, orderCount?: number): ProductResponseDto {
-    return {
+  private mapToResponseDto(
+    product: TenantProduct,
+    orderCount?: number,
+    promotion?: ResolvedPromotion | null,
+  ): ProductResponseDto {
+    const price = Number(product.price);
+    const dto: ProductResponseDto = {
       id: product.id,
       name: product.name,
       nameKo: product.nameKo,
       description: product.description ?? '',
       descriptionKo: product.descriptionKo,
-      price: Number(product.price),
+      price,
       image: product.image,
       categoryId: product.categoryId ?? undefined,
       category: product.category ?? undefined,
@@ -449,5 +460,28 @@ export class ProductsService {
       updatedAt: product.updatedAt,
       deletedAt: product.deletedAt ?? undefined,
     };
+    if (promotion && promotion.salePrice < price) {
+      dto.salePrice = promotion.salePrice;
+      dto.promotion = {
+        id: promotion.promotionId,
+        name: promotion.promotionName,
+        label: promotion.label,
+      };
+    }
+    return dto;
+  }
+
+  private async mapProductsWithPromotions(
+    manager: any,
+    products: TenantProduct[],
+    counts?: Record<string, number>,
+  ): Promise<ProductResponseDto[]> {
+    const promoMap = await this.promotionsService.resolveProductPrices(
+      manager,
+      products,
+    );
+    return products.map((p) =>
+      this.mapToResponseDto(p, counts?.[p.id] ?? 0, promoMap.get(p.id) ?? null),
+    );
   }
 }

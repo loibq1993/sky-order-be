@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsOptional, MaxLength, IsNotEmpty, IsNumber, IsEnum, IsArray, ValidateNested, Min, IsUUID } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ComboOrderDto } from '../combos/combos.dto';
 
 export enum OrderType {
     DINE_IN = 'dine_in',
@@ -54,14 +55,25 @@ export class OrderItemDto {
 }
 
 export class CreateOrderDto {
-    @ApiProperty({
+    @ApiPropertyOptional({
         description: 'Order items',
         type: [OrderItemDto]
     })
+    @IsOptional()
     @IsArray()
     @ValidateNested({ each: true })
     @Type(() => OrderItemDto)
-    items: OrderItemDto[];
+    items?: OrderItemDto[];
+
+    @ApiPropertyOptional({
+        description: 'Combo bundles in the order',
+        type: [ComboOrderDto],
+    })
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => ComboOrderDto)
+    combos?: ComboOrderDto[];
 
     @ApiProperty({
         description: 'Order type',
@@ -132,6 +144,15 @@ export class CreateOrderDto {
     @IsString()
     @MaxLength(1000)
     specialInstructions?: string;
+
+    @ApiPropertyOptional({
+        description: 'Voucher code to apply at checkout',
+        example: 'VC-AB12CD34',
+    })
+    @IsOptional()
+    @IsString()
+    @MaxLength(50)
+    voucherCode?: string;
 }
 
 export class UpdateOrderDto {
@@ -397,6 +418,18 @@ export class OrderResponseDto {
     })
     paymentStatus?: string;
 
+    @ApiPropertyOptional({ description: 'Subtotal before voucher discount' })
+    subtotal?: number;
+
+    @ApiPropertyOptional({ description: 'Voucher discount amount applied' })
+    voucherDiscount?: number;
+
+    @ApiPropertyOptional({ description: 'Applied voucher code' })
+    voucherCode?: string;
+
+    @ApiPropertyOptional({ description: 'Applied voucher name' })
+    voucherName?: string;
+
     @ApiPropertyOptional({
         description: 'Payment method',
         example: 'stripe',
@@ -409,6 +442,14 @@ export class OrderResponseDto {
     paidAt?: Date;
 }
 
+export enum PaymentMethod {
+    CASH = 'cash',
+    TRANSFER = 'transfer',
+    QR = 'qr',
+    CARD = 'card',
+    STRIPE = 'stripe',
+}
+
 export class UpdateOrderStatusDto {
     @ApiProperty({
         description: 'Order status',
@@ -417,6 +458,15 @@ export class UpdateOrderStatusDto {
     })
     @IsEnum(OrderStatus)
     status: OrderStatus;
+
+    @ApiPropertyOptional({
+        description: 'Payment method when marking order as completed at counter',
+        enum: PaymentMethod,
+        example: PaymentMethod.CASH,
+    })
+    @IsOptional()
+    @IsEnum(PaymentMethod)
+    paymentMethod?: PaymentMethod;
 }
 
 export class DateRangeDto {

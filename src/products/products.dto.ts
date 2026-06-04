@@ -380,4 +380,26 @@ export class ProductResponseDto {
         example: '2023-01-01T00:00:00.000Z'
     })
     deletedAt?: Date;
+
+    @ApiPropertyOptional({
+        description: 'Promotional sale price (if active promotion applies)',
+    })
+    salePrice?: number;
+
+    @ApiPropertyOptional({
+        description: 'Active promotion info',
+        type: () => ProductPromotionInfoDto,
+    })
+    promotion?: ProductPromotionInfoDto;
+}
+
+export class ProductPromotionInfoDto {
+    @ApiProperty()
+    id: string;
+
+    @ApiProperty()
+    name: string;
+
+    @ApiProperty()
+    label: string;
 } 

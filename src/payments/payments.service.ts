@@ -229,8 +229,8 @@ export class PaymentsService {
 
     await this.notificationsService.create(restaurantId, {
       type: 'order_completed',
-      title: `Thanh toán Stripe — đơn ${session.metadata?.orderNumber || orderId}`,
-      message: 'Khách đã thanh toán online qua Stripe.',
+      title: `Thanh toán thẻ tín dụng — đơn ${session.metadata?.orderNumber || orderId}`,
+      message: 'Khách đã thanh toán online bằng thẻ tín dụng.',
       tableNumber: session.metadata?.tableNumber
         ? parseInt(session.metadata.tableNumber, 10) || null
         : null,

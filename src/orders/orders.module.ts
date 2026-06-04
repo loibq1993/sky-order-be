@@ -5,9 +5,12 @@ import { OrdersService } from './orders.service';
 import { TenantModule } from '../tenant/tenant.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuthModule } from '../auth/auth.module';
+import { VouchersModule } from '../vouchers/vouchers.module';
+import { PromotionsModule } from '../promotions/promotions.module';
+import { CombosModule } from '../combos/combos.module';
 
 @Module({
-  imports: [TenantModule, NotificationsModule, AuthModule],
+  imports: [TenantModule, NotificationsModule, AuthModule, VouchersModule, PromotionsModule, CombosModule],
   controllers: [AdminOrdersController, ClientOrdersController],
   providers: [OrdersService],
   exports: [OrdersService],

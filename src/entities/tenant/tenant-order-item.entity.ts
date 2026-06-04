@@ -27,6 +27,18 @@ export class TenantOrderItem {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   unitPrice: number;
 
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  originalUnitPrice: number | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  promotionId: string | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  promotionDiscount: number;
+
+  @Column({ type: 'uuid', nullable: true })
+  comboId: string | null;
+
   @Column({ type: 'int' })
   quantity: number;
 

@@ -11,6 +11,10 @@ import {
   TenantTable,
   TenantOrder,
   TenantOrderItem,
+  TenantVoucher,
+  TenantProductPromotion,
+  TenantCombo,
+  TenantComboItem,
 } from '../entities/tenant';
 import { join } from 'path';
 
@@ -32,6 +36,10 @@ export const getTypeOrmConfig = (configService: ConfigService): TypeOrmModuleOpt
       TenantTable,
       TenantOrder,
       TenantOrderItem,
+      TenantVoucher,
+      TenantProductPromotion,
+      TenantCombo,
+      TenantComboItem,
     ],
     migrations: [join(__dirname, '..', 'migrations', '*.{ts,js}')],
     migrationsTableName: 'migrations',

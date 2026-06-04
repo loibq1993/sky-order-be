@@ -11,6 +11,9 @@ import { TenantProduct } from '../entities/tenant/tenant-product.entity';
 import { TenantTable } from '../entities/tenant/tenant-table.entity';
 import { TenantSchemaService } from '../tenant/tenant-schema.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { VouchersService } from '../vouchers/vouchers.service';
+import { PromotionsService } from '../promotions/promotions.service';
+import { CombosService } from '../combos/combos.service';
 import {
   CreateOrderDto,
   UpdateOrderDto,
@@ -18,7 +21,9 @@ import {
   OrderItemResponseDto,
   OrderType,
   OrderStatus,
+  PaymentMethod,
 } from './orders.dto';
+import { EntityManager } from 'typeorm';
 
 const ACTIVE_ORDER_STATUSES = [
   OrderStatus.PENDING,
@@ -33,7 +38,18 @@ export class OrdersService {
   constructor(
     private tenantSchemaService: TenantSchemaService,
     private notificationsService: NotificationsService,
+    private vouchersService: VouchersService,
+    private promotionsService: PromotionsService,
+    private combosService: CombosService,
   ) {}
+
+  private async ensureOrderVoucherColumns(manager: EntityManager): Promise<void> {
+    await manager.query(`
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "voucherId" uuid;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "voucherCode" character varying(50);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "voucherDiscount" numeric(10,2) NOT NULL DEFAULT 0;
+    `);
+  }
 
   private generateOrderNumber(): string {
     const timestamp = Date.now().toString();
@@ -43,6 +59,9 @@ export class OrdersService {
 
   async createOrder(createOrderDto: CreateOrderDto, restaurantId: string): Promise<OrderResponseDto> {
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensureOrderVoucherColumns(manager);
+      await this.promotionsService.ensureOrderItemPromotionColumns(manager);
+      await this.combosService.ensureOrderItemComboIdColumn(manager);
       const tableRepo = manager.getRepository(TenantTable);
       const orderRepo = manager.getRepository(TenantOrder);
       const orderItemRepo = manager.getRepository(TenantOrderItem);
@@ -78,17 +97,27 @@ export class OrdersService {
         }
       }
 
+      const productItems = createOrderDto.items ?? [];
+      const comboOrders = createOrderDto.combos ?? [];
+      if (productItems.length === 0 && comboOrders.length === 0) {
+        throw new BadRequestException('Order must include at least one item or combo');
+      }
+
       let totalAmount = 0;
       const orderItems: Array<{
         productId: string;
         productName: string;
         quantity: number;
         unitPrice: number;
+        originalUnitPrice: number;
+        promotionId: string | null;
+        promotionDiscount: number;
         totalPrice: number;
         specialInstructions: string | null;
+        comboId: string | null;
       }> = [];
 
-      for (const item of createOrderDto.items) {
+      for (const item of productItems) {
         const product = await productRepo.findOne({
           where: {
             id: item.productId,
@@ -100,17 +129,84 @@ export class OrdersService {
         if (!product) {
           throw new BadRequestException(`Product with ID ${item.productId} not found or unavailable`);
         }
-        const itemTotal = Number(product.price) * item.quantity;
+        const pricing = await this.promotionsService.resolveUnitPrice(manager, product);
+        const itemTotal = pricing.unitPrice * item.quantity;
         totalAmount += itemTotal;
         orderItems.push({
           productId: item.productId,
           productName: product.name,
           quantity: item.quantity,
-          unitPrice: Number(product.price),
+          unitPrice: pricing.unitPrice,
+          originalUnitPrice: pricing.originalUnitPrice,
+          promotionId: pricing.promotionId,
+          promotionDiscount: pricing.promotionDiscount,
           totalPrice: itemTotal,
           specialInstructions: item.notes || null,
+          comboId: null,
         });
       }
+
+      for (const comboOrder of comboOrders) {
+        const expanded = await this.combosService.expandComboToOrderLines(
+          manager,
+          comboOrder.comboId,
+          comboOrder.quantity,
+        );
+        for (const line of expanded) {
+          totalAmount += line.totalPrice;
+          orderItems.push({
+            productId: line.productId,
+            productName: line.productName,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            originalUnitPrice: line.originalUnitPrice,
+            promotionId: line.promotionId,
+            promotionDiscount: line.promotionDiscount,
+            totalPrice: line.totalPrice,
+            specialInstructions: null,
+            comboId: line.comboId,
+          });
+        }
+      }
+
+      let voucherApplication: Awaited<
+        ReturnType<VouchersService['applyForOrder']>
+      > | null = null;
+      if (createOrderDto.voucherCode?.trim()) {
+        const cartItems = orderItems.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        }));
+        voucherApplication = await this.vouchersService.applyForOrder(
+          manager,
+          createOrderDto.voucherCode.trim(),
+          cartItems,
+        );
+        if (voucherApplication.freeItem) {
+          const alreadyInCart = orderItems.some(
+            (i) => i.productId === voucherApplication!.freeItem!.productId,
+          );
+          if (!alreadyInCart) {
+            orderItems.push({
+              productId: voucherApplication.freeItem.productId,
+              productName: `[Tặng] ${voucherApplication.freeItem.productName}`,
+              quantity: voucherApplication.freeItem.quantity,
+              unitPrice: 0,
+              originalUnitPrice: 0,
+              promotionId: null,
+              promotionDiscount: 0,
+              totalPrice: 0,
+              specialInstructions: null,
+              comboId: null,
+            });
+          }
+        }
+      }
+
+      const subtotal = totalAmount;
+      const voucherDiscount = voucherApplication?.discountAmount ?? 0;
+      const orderTotal = voucherApplication?.finalTotal ?? totalAmount;
 
       const order = orderRepo.create({
         orderNumber: this.generateOrderNumber(),
@@ -122,12 +218,19 @@ export class OrdersService {
         customerPhone: createOrderDto.customerPhone ?? null,
         customerAddress: createOrderDto.customerAddress ?? null,
         notes: createOrderDto.notes ?? null,
-        subtotal: totalAmount,
+        subtotal,
         tax: 0,
         deliveryFee: 0,
-        total: totalAmount,
+        total: orderTotal,
+        voucherId: voucherApplication?.voucher.id ?? null,
+        voucherCode: voucherApplication?.voucher.code ?? null,
+        voucherDiscount,
       });
       const savedOrder = await orderRepo.save(order);
+
+      if (voucherApplication) {
+        await this.vouchersService.incrementUsage(manager, voucherApplication.voucher.id);
+      }
 
       const savedOrderItems: TenantOrderItem[] = [];
       for (const item of orderItems) {
@@ -137,8 +240,12 @@ export class OrdersService {
           productName: item.productName,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
+          originalUnitPrice: item.originalUnitPrice,
+          promotionId: item.promotionId,
+          promotionDiscount: item.promotionDiscount,
           totalPrice: item.totalPrice,
           specialInstructions: item.specialInstructions,
+          comboId: item.comboId,
         });
         const saved = await orderItemRepo.save(oi);
         savedOrderItems.push(saved);
@@ -191,6 +298,7 @@ export class OrdersService {
     restaurantId: string,
   ): Promise<OrderResponseDto> {
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.promotionsService.ensureOrderItemPromotionColumns(manager);
       const orderRepo = manager.getRepository(TenantOrder);
       const orderItemRepo = manager.getRepository(TenantOrderItem);
       const productRepo = manager.getRepository(TenantProduct);
@@ -219,14 +327,18 @@ export class OrdersService {
           if (!product) {
             throw new BadRequestException(`Product with ID ${item.productId} not found or unavailable`);
           }
-          const itemTotal = Number(product.price) * item.quantity;
+          const pricing = await this.promotionsService.resolveUnitPrice(manager, product);
+          const itemTotal = pricing.unitPrice * item.quantity;
           additionalTotal += itemTotal;
           const oi = orderItemRepo.create({
             orderId: id,
             productId: item.productId,
             productName: product.name,
             quantity: item.quantity,
-            unitPrice: Number(product.price),
+            unitPrice: pricing.unitPrice,
+            originalUnitPrice: pricing.originalUnitPrice,
+            promotionId: pricing.promotionId,
+            promotionDiscount: pricing.promotionDiscount,
             totalPrice: itemTotal,
             specialInstructions: item.notes || null,
           });
@@ -388,18 +500,61 @@ export class OrdersService {
     });
   }
 
+  private async ensurePaymentColumns(manager: EntityManager): Promise<void> {
+    await manager.query(`
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentStatus" character varying(20) NOT NULL DEFAULT 'unpaid';
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentMethod" character varying(30);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stripeCheckoutSessionId" character varying(255);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stripePaymentIntentId" character varying(255);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paidAt" TIMESTAMP;
+    `);
+  }
+
+  private paymentMethodLabel(method: string): string {
+    const labels: Record<string, string> = {
+      cash: 'tiền mặt',
+      transfer: 'chuyển khoản',
+      qr: 'QR',
+      card: 'thẻ',
+      stripe: 'thẻ tín dụng',
+    };
+    return labels[method] || method;
+  }
+
   async updateOrderStatus(
     id: string,
     status: OrderStatus,
     restaurantId?: string,
+    paymentMethod?: PaymentMethod,
   ): Promise<OrderResponseDto> {
     if (!restaurantId) throw new BadRequestException('restaurantId is required');
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensurePaymentColumns(manager);
       const repo = manager.getRepository(TenantOrder);
       const order = await repo.findOne({ where: { id } });
       if (!order) throw new NotFoundException(`Order with ID ${id} not found`);
+
+      const wasCompleted = order.status === OrderStatus.COMPLETED;
       order.status = status as string;
+
+      if (status === OrderStatus.COMPLETED && order.paymentStatus !== 'paid') {
+        order.paymentStatus = 'paid';
+        order.paymentMethod = paymentMethod || PaymentMethod.CASH;
+        order.paidAt = new Date();
+      }
+
       await repo.save(order);
+
+      if (status === OrderStatus.COMPLETED && !wasCompleted) {
+        const method = order.paymentMethod || paymentMethod || PaymentMethod.CASH;
+        await this.notificationsService.create(restaurantId, {
+          type: 'order_completed',
+          title: `Thanh toán ${this.paymentMethodLabel(method)} — đơn ${order.orderNumber}`,
+          message: `Đơn đã được xác nhận thanh toán tại quầy (${this.paymentMethodLabel(method)}).`,
+          tableNumber: order.tableNumber ?? null,
+        });
+      }
+
       const updated = await repo.findOne({ where: { id }, relations: ['orderItems'] });
       if (!updated) throw new NotFoundException('Order not found');
       return this.mapToResponseDto(updated);
@@ -428,6 +583,10 @@ export class OrdersService {
       tableNumber: order.tableNumber ?? undefined,
       items,
       totalAmount: Number(order.total),
+      subtotal: Number(order.subtotal),
+      voucherDiscount: Number(order.voucherDiscount ?? 0),
+      voucherCode: order.voucherCode ?? undefined,
+      voucherName: undefined,
       customerName: order.customerName ?? undefined,
       customerPhone: order.customerPhone ?? undefined,
       customerAddress: order.customerAddress ?? undefined,

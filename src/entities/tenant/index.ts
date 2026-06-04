@@ -5,3 +5,7 @@ export { TenantProductCategory } from './tenant-product-category.entity';
 export { TenantTable } from './tenant-table.entity';
 export { TenantOrder } from './tenant-order.entity';
 export { TenantOrderItem } from './tenant-order-item.entity';
+export { TenantVoucher } from './tenant-voucher.entity';
+export { TenantProductPromotion } from './tenant-product-promotion.entity';
+export { TenantCombo } from './tenant-combo.entity';
+export { TenantComboItem } from './tenant-combo-item.entity';
