@@ -1,7 +1,9 @@
 import {
   PromotionDiscountMode,
+  PromotionType,
   TenantProductPromotion,
 } from '../entities/tenant/tenant-product-promotion.entity';
+import { isHappyHourActive } from './promotion-schedule';
 
 export interface ResolvedPromotion {
   promotionId: string;
@@ -58,13 +60,21 @@ export function computeSalePrice(
   };
 }
 
+export function isPricePromotionType(type: PromotionType): boolean {
+  return type === 'standard' || type === 'happy_hour';
+}
+
 export function pickBestPromotion(
   originalPrice: number,
   promos: TenantProductPromotion[],
+  now = new Date(),
 ): ResolvedPromotion | null {
   let best: { resolved: ResolvedPromotion; priority: number } | null = null;
 
   for (const promo of promos) {
+    const promoType = promo.promotionType ?? 'standard';
+    if (!isPricePromotionType(promoType)) continue;
+    if (promoType === 'happy_hour' && !isHappyHourActive(promo, now)) continue;
     const { salePrice, discountAmount } = computeSalePrice(originalPrice, promo);
     if (discountAmount <= 0) continue;
 

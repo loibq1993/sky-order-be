@@ -169,6 +169,14 @@ export class OrdersService {
         }
       }
 
+      const linesWithBxgy = await this.promotionsService.applyBuyXGetYToOrderLines(
+        manager,
+        orderItems,
+      );
+      orderItems.length = 0;
+      orderItems.push(...linesWithBxgy);
+      totalAmount = orderItems.reduce((sum, line) => sum + line.totalPrice, 0);
+
       let voucherApplication: Awaited<
         ReturnType<VouchersService['applyForOrder']>
       > | null = null;

@@ -14,6 +14,7 @@ import {
 import {
   PromotionDiscountMode,
   PromotionScope,
+  PromotionType,
 } from '../entities/tenant/tenant-product-promotion.entity';
 
 export class CreatePromotionDto {
@@ -27,6 +28,46 @@ export class CreatePromotionDto {
   @IsEnum(['product', 'category'])
   scope: PromotionScope;
 
+  @ApiPropertyOptional({
+    enum: ['standard', 'happy_hour', 'buy_x_get_y'],
+    default: 'standard',
+  })
+  @IsOptional()
+  @IsEnum(['standard', 'happy_hour', 'buy_x_get_y'])
+  promotionType?: PromotionType;
+
+  @ApiPropertyOptional({ description: 'Happy hour start HH:mm (VN timezone)' })
+  @IsOptional()
+  @IsString()
+  timeStart?: string;
+
+  @ApiPropertyOptional({ description: 'Happy hour end HH:mm' })
+  @IsOptional()
+  @IsString()
+  timeEnd?: string;
+
+  @ApiPropertyOptional({ description: 'Days 0=Sun..6=Sat, comma-separated' })
+  @IsOptional()
+  @IsString()
+  daysOfWeek?: string;
+
+  @ApiPropertyOptional({ description: 'Buy X get Y — buy quantity' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  buyQuantity?: number;
+
+  @ApiPropertyOptional({ description: 'Buy X get Y — free quantity per set' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  getQuantity?: number;
+
+  @ApiPropertyOptional({ description: 'Reward product (defaults to same product)' })
+  @IsOptional()
+  @IsUUID()
+  rewardProductId?: string;
+
   @ApiPropertyOptional()
   @ValidateIf((o) => o.scope === 'product')
   @IsUUID()
@@ -37,14 +78,16 @@ export class CreatePromotionDto {
   @IsUUID()
   categoryId?: string;
 
-  @ApiProperty({ enum: ['percentage', 'fixed_amount', 'fixed_price'] })
+  @ApiPropertyOptional({ enum: ['percentage', 'fixed_amount', 'fixed_price'] })
+  @ValidateIf((o) => (o.promotionType ?? 'standard') !== 'buy_x_get_y')
   @IsEnum(['percentage', 'fixed_amount', 'fixed_price'])
-  discountMode: PromotionDiscountMode;
+  discountMode?: PromotionDiscountMode;
 
-  @ApiProperty({ description: '% value, fixed discount, or fixed sale price' })
+  @ApiPropertyOptional({ description: '% value, fixed discount, or fixed sale price' })
+  @ValidateIf((o) => (o.promotionType ?? 'standard') !== 'buy_x_get_y')
   @IsNumber()
   @Min(0)
-  discountValue: number;
+  discountValue?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -83,6 +126,43 @@ export class UpdatePromotionDto {
   @IsOptional()
   @IsEnum(['product', 'category'])
   scope?: PromotionScope;
+
+  @ApiPropertyOptional({ enum: ['standard', 'happy_hour', 'buy_x_get_y'] })
+  @IsOptional()
+  @IsEnum(['standard', 'happy_hour', 'buy_x_get_y'])
+  promotionType?: PromotionType;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  timeStart?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  timeEnd?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  daysOfWeek?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  buyQuantity?: number | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  getQuantity?: number | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  rewardProductId?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -149,6 +229,33 @@ export class PromotionResponseDto {
 
   @ApiProperty({ enum: ['product', 'category'] })
   scope: PromotionScope;
+
+  @ApiProperty({ enum: ['standard', 'happy_hour', 'buy_x_get_y'] })
+  promotionType: PromotionType;
+
+  @ApiPropertyOptional()
+  timeStart?: string | null;
+
+  @ApiPropertyOptional()
+  timeEnd?: string | null;
+
+  @ApiPropertyOptional()
+  daysOfWeek?: string | null;
+
+  @ApiPropertyOptional()
+  buyQuantity?: number | null;
+
+  @ApiPropertyOptional()
+  getQuantity?: number | null;
+
+  @ApiPropertyOptional()
+  rewardProductId?: string | null;
+
+  @ApiPropertyOptional()
+  rewardProductName?: string | null;
+
+  @ApiPropertyOptional()
+  scheduleLabel?: string | null;
 
   @ApiPropertyOptional()
   productId?: string | null;

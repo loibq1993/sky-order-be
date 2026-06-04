@@ -11,6 +11,7 @@ import { TenantSchemaService } from '../tenant/tenant-schema.service';
 import { UploadService } from '../upload/upload.service';
 import { PromotionsService } from '../promotions/promotions.service';
 import { ResolvedPromotion } from '../promotions/promotion-pricing';
+import { BuyXGetYOffer } from '../promotions/buy-x-get-y';
 import {
   CreateProductDto,
   UpdateProductDto,
@@ -439,6 +440,7 @@ export class ProductsService {
     product: TenantProduct,
     orderCount?: number,
     promotion?: ResolvedPromotion | null,
+    buyOffer?: BuyXGetYOffer | null,
   ): ProductResponseDto {
     const price = Number(product.price);
     const dto: ProductResponseDto = {
@@ -468,6 +470,15 @@ export class ProductsService {
         label: promotion.label,
       };
     }
+    if (buyOffer) {
+      dto.buyOffer = {
+        id: buyOffer.promotionId,
+        name: buyOffer.promotionName,
+        label: buyOffer.label,
+        buyQuantity: buyOffer.buyQuantity,
+        getQuantity: buyOffer.getQuantity,
+      };
+    }
     return dto;
   }
 
@@ -476,12 +487,17 @@ export class ProductsService {
     products: TenantProduct[],
     counts?: Record<string, number>,
   ): Promise<ProductResponseDto[]> {
-    const promoMap = await this.promotionsService.resolveProductPrices(
-      manager,
-      products,
-    );
+    const [promoMap, buyMap] = await Promise.all([
+      this.promotionsService.resolveProductPrices(manager, products),
+      this.promotionsService.resolveProductBuyOffers(manager, products),
+    ]);
     return products.map((p) =>
-      this.mapToResponseDto(p, counts?.[p.id] ?? 0, promoMap.get(p.id) ?? null),
+      this.mapToResponseDto(
+        p,
+        counts?.[p.id] ?? 0,
+        promoMap.get(p.id) ?? null,
+        buyMap.get(p.id) ?? null,
+      ),
     );
   }
 }

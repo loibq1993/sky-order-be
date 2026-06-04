@@ -391,6 +391,29 @@ export class ProductResponseDto {
         type: () => ProductPromotionInfoDto,
     })
     promotion?: ProductPromotionInfoDto;
+
+    @ApiPropertyOptional({
+        description: 'Buy X get Y offer badge',
+        type: () => ProductBuyOfferDto,
+    })
+    buyOffer?: ProductBuyOfferDto;
+}
+
+export class ProductBuyOfferDto {
+    @ApiProperty()
+    id: string;
+
+    @ApiProperty()
+    name: string;
+
+    @ApiProperty()
+    label: string;
+
+    @ApiProperty()
+    buyQuantity: number;
+
+    @ApiProperty()
+    getQuantity: number;
 }
 
 export class ProductPromotionInfoDto {
@@ -402,4 +425,7 @@ export class ProductPromotionInfoDto {
 
     @ApiProperty()
     label: string;
+
+    @ApiPropertyOptional({ enum: ['standard', 'happy_hour'] })
+    promotionType?: string;
 } 

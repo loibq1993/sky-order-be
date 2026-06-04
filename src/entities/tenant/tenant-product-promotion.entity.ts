@@ -9,6 +9,7 @@ import {
 
 export type PromotionDiscountMode = 'percentage' | 'fixed_amount' | 'fixed_price';
 export type PromotionScope = 'product' | 'category';
+export type PromotionType = 'standard' | 'happy_hour' | 'buy_x_get_y';
 
 @Entity('product_promotions')
 export class TenantProductPromotion {
@@ -20,6 +21,27 @@ export class TenantProductPromotion {
 
   @Column({ type: 'varchar', length: 20, default: 'product' })
   scope: PromotionScope;
+
+  @Column({ type: 'varchar', length: 20, default: 'standard' })
+  promotionType: PromotionType;
+
+  @Column({ type: 'varchar', length: 5, nullable: true })
+  timeStart: string | null;
+
+  @Column({ type: 'varchar', length: 5, nullable: true })
+  timeEnd: string | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  daysOfWeek: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  buyQuantity: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  getQuantity: number | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  rewardProductId: string | null;
 
   @Column({ type: 'uuid', nullable: true })
   productId: string | null;
