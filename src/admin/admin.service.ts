@@ -18,6 +18,12 @@ import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { ConfigService } from '@nestjs/config';
+import {
+  StripeEnvFallback,
+  sanitizeTenantSettingsForAdmin,
+  sanitizeTenantSettingsForPublic,
+} from '../payments/stripe-config.util';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -27,11 +33,45 @@ export class AdminService {
     private tenantRepository: Repository<Tenant>,
     private tenantService: TenantService,
     private tenantSchemaService: TenantSchemaService,
+    private configService: ConfigService,
   ) {}
+
+  private stripeEnv(): StripeEnvFallback {
+    return {
+      secretKey: this.configService.get<string>('app.stripe.secretKey') || '',
+      webhookSecret: this.configService.get<string>('app.stripe.webhookSecret') || '',
+      currency: (this.configService.get<string>('app.stripe.currency') || 'vnd').toLowerCase(),
+      frontendUrl: (
+        this.configService.get<string>('app.stripe.frontendUrl') || 'http://localhost:3000'
+      ).replace(/\/$/, ''),
+    };
+  }
+
+  private sanitizePublic(tenant: Tenant): Tenant {
+    return {
+      ...tenant,
+      settings: sanitizeTenantSettingsForPublic(tenant, this.stripeEnv()) as Tenant['settings'],
+    };
+  }
+
+  private apiPublicBase(): string {
+    return this.configService.get<string>('app.apiBaseUrl') || 'http://localhost:4500';
+  }
+
+  private sanitizeAdmin(tenant: Tenant): Tenant {
+    return {
+      ...tenant,
+      settings: sanitizeTenantSettingsForAdmin(
+        tenant,
+        this.stripeEnv(),
+        this.apiPublicBase(),
+      ) as Tenant['settings'],
+    };
+  }
 
   // Tenant (restaurant) management - delegate to TenantService, keep API shape
   async createRestaurant(dto: CreateRestaurantDto) {
-    return this.tenantService.createTenant({
+    const tenant = await this.tenantService.createTenant({
       name: dto.name,
       nameKo: dto.nameKo,
       description: dto.description,
@@ -48,12 +88,13 @@ export class AdminService {
       settings: dto.settings,
       businessHours: dto.businessHours,
     });
+    return this.sanitizeAdmin(tenant);
   }
 
   async findAllRestaurants(page: number = 1, limit: number = 10, search?: string) {
     const result = await this.tenantService.findAll(page, limit, search);
     return {
-      restaurants: result.tenants,
+      restaurants: result.tenants.map((t) => this.sanitizeAdmin(t)),
       total: result.total,
       page: result.page,
       limit: result.limit,
@@ -62,11 +103,13 @@ export class AdminService {
   }
 
   async findRestaurantById(id: string) {
-    return this.tenantService.findById(id);
+    const tenant = await this.tenantService.findById(id);
+    return this.sanitizeAdmin(tenant);
   }
 
   async findRestaurantPublicById(id: string) {
-    return this.tenantService.findPublicById(id);
+    const tenant = await this.tenantService.findPublicById(id);
+    return this.sanitizePublic(tenant);
   }
 
   async findRestaurantByDomain(domain: string) {
@@ -74,7 +117,8 @@ export class AdminService {
   }
 
   async updateRestaurant(id: string, dto: UpdateRestaurantDto) {
-    return this.tenantService.updateTenant(id, dto);
+    const tenant = await this.tenantService.updateTenant(id, dto);
+    return this.sanitizeAdmin(tenant);
   }
 
   async deleteRestaurant(id: string) {

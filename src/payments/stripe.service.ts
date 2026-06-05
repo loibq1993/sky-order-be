@@ -1,41 +1,74 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
+import { Tenant } from '../entities/tenant.entity';
+import {
+  ResolvedStripeConfig,
+  StripeEnvFallback,
+  isStripeEnabledForTenant,
+  resolveStripeConfig,
+} from './stripe-config.util';
 
 @Injectable()
 export class StripeService {
-  private readonly stripe: Stripe | null;
-  private readonly currency: string;
-  private readonly frontendUrl: string;
+  private readonly envFallback: StripeEnvFallback;
+  private readonly clientCache = new Map<string, Stripe>();
 
   constructor(private readonly configService: ConfigService) {
-    const secretKey = this.configService.get<string>('app.stripe.secretKey') || '';
-    this.currency = this.configService.get<string>('app.stripe.currency') || 'vnd';
-    this.frontendUrl = this.configService.get<string>('app.stripe.frontendUrl') || 'http://localhost:3000';
-    this.stripe = secretKey ? new Stripe(secretKey) : null;
+    this.envFallback = {
+      secretKey: this.configService.get<string>('app.stripe.secretKey') || '',
+      webhookSecret: this.configService.get<string>('app.stripe.webhookSecret') || '',
+      currency: (this.configService.get<string>('app.stripe.currency') || 'vnd').toLowerCase(),
+      frontendUrl: (
+        this.configService.get<string>('app.stripe.frontendUrl') || 'http://localhost:3000'
+      ).replace(/\/$/, ''),
+    };
   }
 
+  getEnvFallback(): StripeEnvFallback {
+    return this.envFallback;
+  }
+
+  resolveConfig(tenant: Tenant): ResolvedStripeConfig | null {
+    return resolveStripeConfig(tenant, this.envFallback);
+  }
+
+  /** Platform-wide env fallback (when tenant has no own keys). */
+  resolveEnvConfig(): ResolvedStripeConfig | null {
+    if (!this.envFallback.secretKey) return null;
+    return { ...this.envFallback };
+  }
+
+  isConfiguredForTenant(tenant: Tenant): boolean {
+    return this.resolveConfig(tenant) !== null;
+  }
+
+  isEnabledForTenant(tenant: Tenant): boolean {
+    return isStripeEnabledForTenant(tenant, this.envFallback);
+  }
+
+  /** @deprecated Use isEnabledForTenant(tenant). Kept for backward compatibility. */
   isConfigured(): boolean {
-    return this.stripe !== null;
+    return Boolean(this.envFallback.secretKey);
   }
 
-  getCurrency(): string {
-    return this.currency;
-  }
-
-  getFrontendUrl(): string {
-    return this.frontendUrl;
-  }
-
-  getWebhookSecret(): string {
-    return this.configService.get<string>('app.stripe.webhookSecret') || '';
-  }
-
-  private client(): Stripe {
-    if (!this.stripe) {
-      throw new ServiceUnavailableException('Stripe is not configured (STRIPE_SECRET_KEY missing)');
+  private client(config: ResolvedStripeConfig): Stripe {
+    let stripe = this.clientCache.get(config.secretKey);
+    if (!stripe) {
+      stripe = new Stripe(config.secretKey);
+      this.clientCache.set(config.secretKey, stripe);
     }
-    return this.stripe;
+    return stripe;
+  }
+
+  requireConfig(tenant: Tenant): ResolvedStripeConfig {
+    const config = this.resolveConfig(tenant);
+    if (!config) {
+      throw new ServiceUnavailableException(
+        'Stripe is not configured for this restaurant (add keys in Settings → Payment)',
+      );
+    }
+    return config;
   }
 
   /** VND and other zero-decimal currencies: amount is in whole units. */
@@ -44,21 +77,17 @@ export class StripeService {
     return Math.max(rounded, 1);
   }
 
-  /** Stripe minimum charge (whole units). See https://stripe.com/docs/currencies#minimum-and-maximum-charge-amounts */
-  getMinimumChargeAmount(): number {
-    const c = this.currency.toLowerCase();
-    if (c === 'vnd') return 10_000;
-    if (c === 'usd' || c === 'eur' || c === 'gbp') return 50;
-    return 1;
+  getMinimumChargeAmount(currency: string): number {
+    return getMinimumChargeAmount(currency);
   }
 
-  assertMeetsMinimumCharge(amount: number): void {
-    const min = this.getMinimumChargeAmount();
+  assertMeetsMinimumCharge(amount: number, currency: string): void {
+    const min = this.getMinimumChargeAmount(currency);
     if (amount < min) {
       const label =
-        this.currency.toLowerCase() === 'vnd'
+        currency.toLowerCase() === 'vnd'
           ? `${min.toLocaleString('vi-VN')}đ`
-          : `${min} ${this.currency.toUpperCase()}`;
+          : `${min} ${currency.toUpperCase()}`;
       throw new BadRequestException(
         `Số tiền thanh toán tối thiểu là ${label}. Vui lòng kiểm tra giá món trong đơn.`,
       );
@@ -66,8 +95,8 @@ export class StripeService {
   }
 
   /** Origin only, no trailing slash — from client or FRONTEND_URL fallback. */
-  resolveFrontendBase(frontendOrigin?: string): string {
-    const fallback = this.frontendUrl.replace(/\/$/, '');
+  resolveFrontendBase(config: ResolvedStripeConfig, frontendOrigin?: string): string {
+    const fallback = config.frontendUrl.replace(/\/$/, '');
     if (!frontendOrigin?.trim()) return fallback;
     try {
       const u = new URL(frontendOrigin.trim());
@@ -78,18 +107,21 @@ export class StripeService {
     }
   }
 
-  async createCheckoutSession(params: {
-    orderId: string;
-    orderNumber: string;
-    restaurantId: string;
-    amount: number;
-    lineItems: Stripe.Checkout.SessionCreateParams.LineItem[];
-    tableNumber?: number;
-    returnTo?: string;
-    frontendOrigin?: string;
-  }): Promise<Stripe.Checkout.Session> {
-    const stripe = this.client();
-    const base = this.resolveFrontendBase(params.frontendOrigin);
+  async createCheckoutSession(
+    config: ResolvedStripeConfig,
+    params: {
+      orderId: string;
+      orderNumber: string;
+      restaurantId: string;
+      amount: number;
+      lineItems: Stripe.Checkout.SessionCreateParams.LineItem[];
+      tableNumber?: number;
+      returnTo?: string;
+      frontendOrigin?: string;
+    },
+  ): Promise<Stripe.Checkout.Session> {
+    const stripe = this.client(config);
+    const base = this.resolveFrontendBase(config, params.frontendOrigin);
     const returnQuery = params.returnTo
       ? `&return_to=${encodeURIComponent(params.returnTo)}`
       : '';
@@ -114,15 +146,29 @@ export class StripeService {
     });
   }
 
-  async retrieveSession(sessionId: string): Promise<Stripe.Checkout.Session> {
-    return this.client().checkout.sessions.retrieve(sessionId);
+  async retrieveSession(
+    config: ResolvedStripeConfig,
+    sessionId: string,
+  ): Promise<Stripe.Checkout.Session> {
+    return this.client(config).checkout.sessions.retrieve(sessionId);
   }
 
-  constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {
-    const secret = this.getWebhookSecret();
-    if (!secret) {
-      throw new ServiceUnavailableException('STRIPE_WEBHOOK_SECRET is not configured');
+  constructWebhookEvent(
+    config: ResolvedStripeConfig,
+    payload: Buffer,
+    signature: string,
+  ): Stripe.Event {
+    if (!config.webhookSecret) {
+      throw new ServiceUnavailableException('Stripe webhook secret is not configured for this restaurant');
     }
-    return this.client().webhooks.constructEvent(payload, signature, secret);
+    return this.client(config).webhooks.constructEvent(payload, signature, config.webhookSecret);
   }
+}
+
+/** Stripe minimum charge (whole units). See https://stripe.com/docs/currencies#minimum-and-maximum-charge-amounts */
+export function getMinimumChargeAmount(currency: string): number {
+  const c = currency.toLowerCase();
+  if (c === 'vnd') return 10_000;
+  if (c === 'usd' || c === 'eur' || c === 'gbp') return 50;
+  return 1;
 }

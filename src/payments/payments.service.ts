@@ -14,6 +14,7 @@ import { TenantService } from '../tenant/tenant.service';
 import { OrderStatus } from '../orders/orders.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StripeService } from './stripe.service';
+import { ResolvedStripeConfig, resolveTenantWebhookConfig, getTenantStripeSettings } from './stripe-config.util';
 import {
   CheckoutSessionResponseDto,
   PaymentStatusResponseDto,
@@ -84,15 +85,30 @@ export class PaymentsService {
     `);
   }
 
+  private async requireTenantStripe(restaurantId: string) {
+    const tenant = await this.tenantService.findById(restaurantId);
+    const stripe = getTenantStripeSettings(tenant);
+    if (stripe.enabled !== true) {
+      throw new ServiceUnavailableException(
+        'Thanh toán Stripe chưa được bật cho nhà hàng này (Admin → Cài đặt → Stripe).',
+      );
+    }
+    if (!this.stripeService.isEnabledForTenant(tenant)) {
+      throw new ServiceUnavailableException(
+        'Stripe chưa sẵn sàng: thiếu secret key hoặc cấu hình chưa đủ (Admin → Cài đặt → Stripe).',
+      );
+    }
+    const config = this.stripeService.requireConfig(tenant);
+    return { tenant, config };
+  }
+
   async createCheckoutSession(
     orderId: string,
     restaurantId: string,
     returnTo?: string,
     frontendOrigin?: string,
   ): Promise<CheckoutSessionResponseDto> {
-    if (!this.stripeService.isConfigured()) {
-      throw new ServiceUnavailableException('Stripe payments are not enabled');
-    }
+    const { config } = await this.requireTenantStripe(restaurantId);
 
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
       await this.ensurePaymentColumns(manager);
@@ -114,14 +130,14 @@ export class PaymentsService {
         throw new BadRequestException('Order is already completed');
       }
 
-      const currency = this.stripeService.getCurrency();
+      const currency = config.currency;
       const amount = this.stripeService.toStripeAmount(Number(order.total));
       if ((order.orderItems || []).length === 0) {
         throw new BadRequestException(
           'Đơn hàng không có món. Không thể thanh toán thẻ.',
         );
       }
-      this.stripeService.assertMeetsMinimumCharge(amount);
+      this.stripeService.assertMeetsMinimumCharge(amount, currency);
       const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = (
         order.orderItems || []
       ).map((item: TenantOrderItem) => ({
@@ -148,7 +164,7 @@ export class PaymentsService {
         });
       }
 
-      const session = await this.stripeService.createCheckoutSession({
+      const session = await this.stripeService.createCheckoutSession(config, {
         orderId: order.id,
         orderNumber: order.orderNumber,
         restaurantId,
@@ -205,11 +221,9 @@ export class PaymentsService {
     sessionId: string,
     restaurantId: string,
   ): Promise<PaymentStatusResponseDto> {
-    if (!this.stripeService.isConfigured()) {
-      throw new ServiceUnavailableException('Stripe payments are not enabled');
-    }
+    const { config } = await this.requireTenantStripe(restaurantId);
 
-    const session = await this.stripeService.retrieveSession(sessionId);
+    const session = await this.stripeService.retrieveSession(config, sessionId);
     const ctx = await this.resolveStripeCheckoutContext(session);
     if (!ctx) {
       throw new BadRequestException('Invalid checkout session');
@@ -252,23 +266,49 @@ export class PaymentsService {
     };
   }
 
-  async handleStripeWebhook(payload: Buffer, signature: string): Promise<void> {
-    let event: Stripe.Event;
+  private async verifyTenantWebhookEvent(
+    restaurantId: string,
+    payload: Buffer,
+    signature: string,
+  ): Promise<{ event: Stripe.Event; config: ResolvedStripeConfig }> {
+    const tenant = await this.tenantService.findById(restaurantId);
+    const config = resolveTenantWebhookConfig(tenant, this.stripeService.getEnvFallback());
+    if (!config) {
+      throw new BadRequestException(
+        'Stripe webhook not configured for this restaurant. Set secret key and webhook secret in Admin → Settings → Stripe, then register the webhook URL shown there.',
+      );
+    }
     try {
-      event = this.stripeService.constructWebhookEvent(payload, signature);
+      const event = this.stripeService.constructWebhookEvent(config, payload, signature);
+      return { event, config };
     } catch (err) {
       this.logger.error(
-        `Stripe webhook signature verification failed. ` +
-          'Ensure STRIPE_WEBHOOK_SECRET matches the whsec_ from the current `stripe listen` session, then restart backend.',
+        `Stripe webhook signature failed for tenant ${restaurantId}. ` +
+          'Ensure whsec_ matches the endpoint URL for this restaurant on Stripe Dashboard.',
       );
       throw err;
     }
+  }
 
-    this.logger.log(`Stripe webhook received: ${event.type}`);
+  async handleStripeWebhook(
+    payload: Buffer,
+    signature: string,
+    restaurantId: string,
+  ): Promise<void> {
+    const { event } = await this.verifyTenantWebhookEvent(restaurantId, payload, signature);
+
+    this.logger.log(`Stripe webhook received for tenant ${restaurantId}: ${event.type}`);
 
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
-      const updated = await this.markOrderPaidFromStripe(session);
+      const metaRestaurantId = this.normalizeStripeMetaId(session.metadata?.restaurantId);
+      if (metaRestaurantId && metaRestaurantId !== restaurantId) {
+        this.logger.warn(
+          `checkout.session.completed: URL tenant ${restaurantId} != metadata restaurantId ${metaRestaurantId}`,
+        );
+        throw new BadRequestException('Checkout session does not belong to this restaurant');
+      }
+      const updated = await this.markOrderPaidFromStripe(session, restaurantId);
       if (!updated) {
         this.logger.warn(
           `checkout.session.completed: order not updated (metadata orderId=${session.metadata?.orderId ?? session.client_reference_id}, restaurantId=${session.metadata?.restaurantId}, payment_status=${session.payment_status})`,
@@ -279,10 +319,14 @@ export class PaymentsService {
 
     if (event.type === 'checkout.session.expired') {
       const session = event.data.object as Stripe.Checkout.Session;
-      const restaurantId = session.metadata?.restaurantId;
+      const orderRestaurantId =
+        this.normalizeStripeMetaId(session.metadata?.restaurantId) || restaurantId;
       const orderId = session.metadata?.orderId;
-      if (!restaurantId || !orderId) return;
-      await this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      if (!orderId) return;
+      if (orderRestaurantId !== restaurantId) {
+        throw new BadRequestException('Checkout session does not belong to this restaurant');
+      }
+      await this.tenantSchemaService.runInTenant(orderRestaurantId, async (manager) => {
         await this.ensurePaymentColumns(manager);
         const orderRepo = manager.getRepository(TenantOrder);
         const order = await orderRepo.findOne({ where: { id: orderId, deletedAt: IsNull() } });

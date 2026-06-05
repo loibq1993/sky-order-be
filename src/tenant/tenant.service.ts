@@ -13,6 +13,7 @@ import {
 import { getTenantSchemaSql } from './tenant-schema.sql';
 import { TenantSchemaService } from './tenant-schema.service';
 import { CorsAllowedOriginsService } from '../cors/cors-allowed-origins.service';
+import { mergeTenantSettings } from '../payments/stripe-config.util';
 import * as bcrypt from 'bcryptjs';
 
 export interface CreateTenantDto {
@@ -69,6 +70,13 @@ export class TenantService {
       select: ['id'],
     });
     return tenants.map((t) => t.id);
+  }
+
+  /** Full tenant rows for cross-tenant Stripe webhook verification. */
+  async listActiveTenants(): Promise<Tenant[]> {
+    return this.tenantRepository.find({
+      where: { deletedAt: IsNull(), isActive: true },
+    });
   }
 
   /**
@@ -168,7 +176,7 @@ export class TenantService {
       schemaName,
       customDomain: resolvedDomain,
       isActive: true,
-      settings: dto.settings ?? { homeTheme: 'default' },
+      settings: dto.settings ?? { homeTheme: 'default', stripe: { enabled: false } },
     });
     const saved = await this.tenantRepository.save(tenant);
 
@@ -209,6 +217,13 @@ export class TenantService {
 
     if (dto.customDomain !== undefined) {
       patch.customDomain = toHost(dto.customDomain ?? '');
+    }
+
+    if (dto.settings !== undefined) {
+      patch.settings = mergeTenantSettings(
+        tenant.settings as Record<string, unknown> | undefined,
+        dto.settings as Record<string, unknown>,
+      );
     }
 
     Object.assign(tenant, patch);
