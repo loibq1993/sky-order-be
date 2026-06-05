@@ -51,6 +51,26 @@ export class OrdersService {
     `);
   }
 
+  private async ensurePaymentColumns(manager: EntityManager): Promise<void> {
+    await manager.query(`
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentStatus" character varying(20) NOT NULL DEFAULT 'unpaid';
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentMethod" character varying(30);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stripeCheckoutSessionId" character varying(255);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stripePaymentIntentId" character varying(255);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "sepayTransactionId" character varying(64);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "sepayReferenceCode" character varying(255);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paidAt" TIMESTAMP;
+    `);
+  }
+
+  /** Backfill columns on tenant schemas created before payment/voucher migrations. */
+  private async ensureOrderSchemaColumns(manager: EntityManager): Promise<void> {
+    await this.ensureOrderVoucherColumns(manager);
+    await this.ensurePaymentColumns(manager);
+    await this.promotionsService.ensureOrderItemPromotionColumns(manager);
+    await this.combosService.ensureOrderItemComboIdColumn(manager);
+  }
+
   private generateOrderNumber(): string {
     const timestamp = Date.now().toString();
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
@@ -59,9 +79,7 @@ export class OrdersService {
 
   async createOrder(createOrderDto: CreateOrderDto, restaurantId: string): Promise<OrderResponseDto> {
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
-      await this.ensureOrderVoucherColumns(manager);
-      await this.promotionsService.ensureOrderItemPromotionColumns(manager);
-      await this.combosService.ensureOrderItemComboIdColumn(manager);
+      await this.ensureOrderSchemaColumns(manager);
       const tableRepo = manager.getRepository(TenantTable);
       const orderRepo = manager.getRepository(TenantOrder);
       const orderItemRepo = manager.getRepository(TenantOrderItem);
@@ -277,6 +295,7 @@ export class OrdersService {
   async findOne(id: string, restaurantId?: string): Promise<OrderResponseDto> {
     if (!restaurantId) throw new NotFoundException('Order not found');
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensureOrderSchemaColumns(manager);
       const repo = manager.getRepository(TenantOrder);
       const order = await repo.findOne({
         where: { id },
@@ -290,6 +309,7 @@ export class OrdersService {
   async findByOrderNumber(orderNumber: string, restaurantId?: string): Promise<OrderResponseDto> {
     if (!restaurantId) throw new NotFoundException('Order not found');
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensureOrderSchemaColumns(manager);
       const repo = manager.getRepository(TenantOrder);
       const order = await repo.findOne({
         where: { orderNumber },
@@ -306,7 +326,7 @@ export class OrdersService {
     restaurantId: string,
   ): Promise<OrderResponseDto> {
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
-      await this.promotionsService.ensureOrderItemPromotionColumns(manager);
+      await this.ensureOrderSchemaColumns(manager);
       const orderRepo = manager.getRepository(TenantOrder);
       const orderItemRepo = manager.getRepository(TenantOrderItem);
       const productRepo = manager.getRepository(TenantProduct);
@@ -405,6 +425,7 @@ export class OrdersService {
   ): Promise<OrderResponseDto | null> {
     if (!restaurantId) return null;
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensureOrderSchemaColumns(manager);
       const repo = manager.getRepository(TenantOrder);
       const order = await repo.findOne({
         where: {
@@ -424,6 +445,7 @@ export class OrdersService {
   ): Promise<OrderResponseDto[]> {
     if (!restaurantId) return [];
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensureOrderSchemaColumns(manager);
       const repo = manager.getRepository(TenantOrder);
       const orders = await repo
         .createQueryBuilder('order')
@@ -485,6 +507,7 @@ export class OrdersService {
   ): Promise<OrderResponseDto[]> {
     if (!restaurantId) return [];
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensureOrderSchemaColumns(manager);
       const repo = manager.getRepository(TenantOrder);
       const orders = await repo.find({
         where: { deletedAt: IsNull() },
@@ -502,6 +525,7 @@ export class OrdersService {
   ): Promise<OrderResponseDto[]> {
     if (!restaurantId) return [];
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensureOrderSchemaColumns(manager);
       const repo = manager.getRepository(TenantOrder);
       const orders = await repo.find({
         where: { status: In(statuses), deletedAt: IsNull() },
@@ -510,18 +534,6 @@ export class OrdersService {
       });
       return orders.map((o) => this.mapToResponseDto(o));
     });
-  }
-
-  private async ensurePaymentColumns(manager: EntityManager): Promise<void> {
-    await manager.query(`
-      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentStatus" character varying(20) NOT NULL DEFAULT 'unpaid';
-      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentMethod" character varying(30);
-      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stripeCheckoutSessionId" character varying(255);
-      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stripePaymentIntentId" character varying(255);
-      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "sepayTransactionId" character varying(64);
-      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "sepayReferenceCode" character varying(255);
-      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paidAt" TIMESTAMP;
-    `);
   }
 
   private paymentMethodLabel(method: string): string {
@@ -545,7 +557,7 @@ export class OrdersService {
   ): Promise<OrderResponseDto> {
     if (!restaurantId) throw new BadRequestException('restaurantId is required');
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
-      await this.ensurePaymentColumns(manager);
+      await this.ensureOrderSchemaColumns(manager);
       const repo = manager.getRepository(TenantOrder);
       const order = await repo.findOne({ where: { id } });
       if (!order) throw new NotFoundException(`Order with ID ${id} not found`);
