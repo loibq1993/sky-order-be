@@ -518,6 +518,8 @@ export class OrdersService {
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentMethod" character varying(30);
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stripeCheckoutSessionId" character varying(255);
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stripePaymentIntentId" character varying(255);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "sepayTransactionId" character varying(64);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "sepayReferenceCode" character varying(255);
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paidAt" TIMESTAMP;
     `);
   }
@@ -529,6 +531,7 @@ export class OrdersService {
       qr: 'QR',
       card: 'thẻ',
       stripe: 'thẻ tín dụng',
+      vietqr: 'chuyển khoản QR',
     };
     return labels[method] || method;
   }

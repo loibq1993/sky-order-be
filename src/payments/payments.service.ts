@@ -14,10 +14,16 @@ import { TenantService } from '../tenant/tenant.service';
 import { OrderStatus } from '../orders/orders.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StripeService } from './stripe.service';
+import { SepayService } from './sepay.service';
 import { ResolvedStripeConfig, resolveTenantWebhookConfig, getTenantStripeSettings } from './stripe-config.util';
+import {
+  getTenantSepaySettings,
+  transferContentMatchesOrder,
+} from './sepay-config.util';
 import {
   CheckoutSessionResponseDto,
   PaymentStatusResponseDto,
+  VietQrPaymentResponseDto,
 } from './payments.dto';
 
 const UNPAID_STATUSES = ['unpaid', 'failed'];
@@ -30,6 +36,7 @@ export class PaymentsService {
     private readonly tenantSchemaService: TenantSchemaService,
     private readonly tenantService: TenantService,
     private readonly stripeService: StripeService,
+    private readonly sepayService: SepayService,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -81,6 +88,8 @@ export class PaymentsService {
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentMethod" character varying(30);
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stripeCheckoutSessionId" character varying(255);
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stripePaymentIntentId" character varying(255);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "sepayTransactionId" character varying(64);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "sepayReferenceCode" character varying(255);
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paidAt" TIMESTAMP;
     `);
   }
@@ -272,7 +281,7 @@ export class PaymentsService {
     signature: string,
   ): Promise<{ event: Stripe.Event; config: ResolvedStripeConfig }> {
     const tenant = await this.tenantService.findById(restaurantId);
-    const config = resolveTenantWebhookConfig(tenant, this.stripeService.getEnvFallback());
+    const config = resolveTenantWebhookConfig(tenant);
     if (!config) {
       throw new BadRequestException(
         'Stripe webhook not configured for this restaurant. Set secret key and webhook secret in Admin → Settings → Stripe, then register the webhook URL shown there.',
@@ -416,5 +425,133 @@ export class PaymentsService {
     }
 
     return saved;
+  }
+
+  async getVietQrPayment(orderId: string, restaurantId: string): Promise<VietQrPaymentResponseDto> {
+    const tenant = await this.tenantService.findById(restaurantId);
+    if (!this.sepayService.isEnabledForTenant(tenant)) {
+      throw new ServiceUnavailableException(
+        'Thanh toán VietQR chưa được bật (Admin → Cài đặt → SePay).',
+      );
+    }
+
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensurePaymentColumns(manager);
+      const order = await manager.getRepository(TenantOrder).findOne({
+        where: { id: orderId, deletedAt: IsNull() },
+      });
+      if (!order) {
+        throw new NotFoundException(`Order with ID ${orderId} not found`);
+      }
+      if (order.paymentStatus === 'paid') {
+        throw new BadRequestException('Order is already paid');
+      }
+      if (order.status === OrderStatus.CANCELLED) {
+        throw new BadRequestException('Cannot pay a cancelled order');
+      }
+
+      const amount = Math.round(Number(order.total));
+      const qr = this.sepayService.buildQrForOrder(tenant, order.orderNumber, amount);
+
+      if (order.paymentStatus !== 'paid') {
+        order.paymentStatus = 'processing';
+        order.paymentMethod = 'vietqr';
+        await manager.getRepository(TenantOrder).save(order);
+      }
+
+      return {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        amount: qr.amount,
+        transferContent: qr.transferContent,
+        qrImageUrl: qr.qrImageUrl,
+        paymentStatus: order.paymentStatus || 'unpaid',
+      };
+    });
+  }
+
+  async handleSepayWebhook(restaurantId: string, body: Record<string, unknown>): Promise<void> {
+    const tenant = await this.tenantService.findById(restaurantId);
+    if (!this.sepayService.isEnabledForTenant(tenant)) {
+      this.logger.warn(`SePay webhook ignored: VietQR disabled for tenant ${restaurantId}`);
+      return;
+    }
+
+    const transferType = String(body.transferType ?? '').toLowerCase();
+    if (transferType && transferType !== 'in') {
+      this.logger.warn(`SePay webhook ignored: transferType=${transferType}`);
+      return;
+    }
+
+    const content = String(body.content ?? '').trim();
+    const transferAmount = Number(body.transferAmount);
+    const sepayTxId = body.id != null ? String(body.id) : '';
+    const referenceCode =
+      typeof body.referenceCode === 'string' ? body.referenceCode : undefined;
+
+    if (!content || !Number.isFinite(transferAmount) || transferAmount <= 0) {
+      this.logger.warn('SePay webhook ignored: missing content or transferAmount');
+      return;
+    }
+
+    const prefix = getTenantSepaySettings(tenant).orderCodePrefix;
+
+    const matched = await this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensurePaymentColumns(manager);
+      const orderRepo = manager.getRepository(TenantOrder);
+      const candidates = await orderRepo.find({
+        where: { deletedAt: IsNull() },
+        order: { createdAt: 'DESC' },
+        take: 200,
+      });
+
+      const order = candidates.find(
+        (o) =>
+          o.paymentStatus !== 'paid' &&
+          transferContentMatchesOrder(content, o.orderNumber, prefix),
+      );
+      if (!order) return null;
+
+      const expectedAmount = Math.round(Number(order.total));
+      if (transferAmount !== expectedAmount) {
+        this.logger.warn(
+          `SePay webhook amount mismatch for order ${order.orderNumber}: got ${transferAmount}, expected ${expectedAmount}`,
+        );
+        return null;
+      }
+
+      if (sepayTxId && order.sepayTransactionId === sepayTxId) {
+        this.logger.log(`SePay webhook duplicate tx ${sepayTxId} for order ${order.id}`);
+        return { duplicate: true as const, order };
+      }
+
+      order.paymentStatus = 'paid';
+      order.paymentMethod = 'vietqr';
+      order.status = OrderStatus.COMPLETED;
+      order.paidAt = new Date();
+      if (sepayTxId) order.sepayTransactionId = sepayTxId;
+      if (referenceCode) order.sepayReferenceCode = referenceCode;
+      await orderRepo.save(order);
+      return { duplicate: false as const, order };
+    });
+
+    if (!matched) {
+      this.logger.warn(
+        `SePay webhook: no matching unpaid order for content="${content}" tenant=${restaurantId}`,
+      );
+      return;
+    }
+
+    if (!matched.duplicate) {
+      this.logger.log(
+        `Order ${matched.order.orderNumber} marked paid via SePay (tx ${sepayTxId || 'n/a'})`,
+      );
+      await this.notificationsService.create(restaurantId, {
+        type: 'order_completed',
+        title: `Thanh toán VietQR — đơn ${matched.order.orderNumber}`,
+        message: 'Khách đã chuyển khoản qua mã QR SePay.',
+        tableNumber: matched.order.tableNumber ?? null,
+      });
+    }
   }
 }

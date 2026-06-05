@@ -20,10 +20,13 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ConfigService } from '@nestjs/config';
 import {
-  StripeEnvFallback,
   sanitizeTenantSettingsForAdmin,
   sanitizeTenantSettingsForPublic,
 } from '../payments/stripe-config.util';
+import {
+  toAdminSepaySettings,
+  toPublicSepaySettings,
+} from '../payments/sepay-config.util';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -36,35 +39,23 @@ export class AdminService {
     private configService: ConfigService,
   ) {}
 
-  private stripeEnv(): StripeEnvFallback {
-    return {
-      secretKey: this.configService.get<string>('app.stripe.secretKey') || '',
-      webhookSecret: this.configService.get<string>('app.stripe.webhookSecret') || '',
-      currency: (this.configService.get<string>('app.stripe.currency') || 'vnd').toLowerCase(),
-      frontendUrl: (
-        this.configService.get<string>('app.stripe.frontendUrl') || 'http://localhost:3000'
-      ).replace(/\/$/, ''),
-    };
-  }
-
   private sanitizePublic(tenant: Tenant): Tenant {
     return {
       ...tenant,
-      settings: sanitizeTenantSettingsForPublic(tenant, this.stripeEnv()) as Tenant['settings'],
+      settings: sanitizeTenantSettingsForPublic(
+        tenant,
+        toPublicSepaySettings(tenant) as unknown as Record<string, unknown>,
+      ) as Tenant['settings'],
     };
   }
 
-  private apiPublicBase(): string {
-    return this.configService.get<string>('app.apiBaseUrl') || 'http://localhost:4500';
-  }
-
-  private sanitizeAdmin(tenant: Tenant): Tenant {
+  private sanitizeAdmin(tenant: Tenant, apiPublicBase = 'http://localhost:4500'): Tenant {
     return {
       ...tenant,
       settings: sanitizeTenantSettingsForAdmin(
         tenant,
-        this.stripeEnv(),
-        this.apiPublicBase(),
+        apiPublicBase,
+        toAdminSepaySettings(tenant, apiPublicBase) as unknown as Record<string, unknown>,
       ) as Tenant['settings'],
     };
   }

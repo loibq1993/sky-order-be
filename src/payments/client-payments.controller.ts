@@ -23,6 +23,7 @@ import {
   CreateCheckoutSessionDto,
   CheckoutSessionResponseDto,
   PaymentStatusResponseDto,
+  VietQrPaymentResponseDto,
 } from './payments.dto';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
@@ -65,6 +66,17 @@ export class ClientPaymentsController {
       dto.returnTo,
       frontendOrigin,
     );
+  }
+
+  @Get('order/:orderId/vietqr')
+  @ApiOperation({ summary: 'Get SePay VietQR image URL for bank transfer' })
+  @ApiParam({ name: 'orderId', description: 'Order ID' })
+  @ApiResponse({ status: 200, type: VietQrPaymentResponseDto })
+  async getVietQr(
+    @Param('orderId') orderId: string,
+    @RestaurantId() restaurantId: string,
+  ): Promise<VietQrPaymentResponseDto> {
+    return this.paymentsService.getVietQrPayment(orderId, restaurantId);
   }
 
   @Get('order/:orderId/status')

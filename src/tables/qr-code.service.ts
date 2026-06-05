@@ -102,7 +102,7 @@ export class QrCodeService {
         // Generate QR code image
         const qrCodeImagePath = await this.generateQrCode(qrData, filename);
 
-        const backendUrl = this.configService.get<string>('app.apiBaseUrl') || baseUrl;
+        const backendUrl = baseUrl;
         const backendHost = (() => {
             try {
                 const u = backendUrl.includes('://') ? backendUrl : `http://${backendUrl}`;

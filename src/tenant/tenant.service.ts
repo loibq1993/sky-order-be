@@ -176,7 +176,11 @@ export class TenantService {
       schemaName,
       customDomain: resolvedDomain,
       isActive: true,
-      settings: dto.settings ?? { homeTheme: 'default', stripe: { enabled: false } },
+      settings: dto.settings ?? {
+        homeTheme: 'default',
+        stripe: { enabled: false },
+        sepay: { enabled: false },
+      },
     });
     const saved = await this.tenantRepository.save(tenant);
 

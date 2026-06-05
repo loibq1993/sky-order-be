@@ -58,3 +58,23 @@ export class PaymentStatusResponseDto {
   })
   checkoutPaidOnStripe?: boolean;
 }
+
+export class VietQrPaymentResponseDto {
+  @ApiProperty()
+  orderId: string;
+
+  @ApiProperty({ example: 'ORD-20250605-001' })
+  orderNumber: string;
+
+  @ApiProperty({ example: 150000 })
+  amount: number;
+
+  @ApiProperty({ description: 'Transfer description — must match bank transfer content' })
+  transferContent: string;
+
+  @ApiProperty({ example: 'https://qr.sepay.vn/img?acc=...' })
+  qrImageUrl: string;
+
+  @ApiProperty({ example: 'unpaid' })
+  paymentStatus: string;
+}

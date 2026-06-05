@@ -74,6 +74,12 @@ export class TenantOrder {
   @Column({ type: 'varchar', length: 255, nullable: true })
   stripePaymentIntentId: string | null;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  sepayTransactionId: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  sepayReferenceCode: string | null;
+
   @Column({ type: 'timestamp', nullable: true })
   paidAt: Date | null;
 

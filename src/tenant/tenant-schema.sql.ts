@@ -108,6 +108,8 @@ export function getTenantSchemaSql(schemaName: string): string[] {
       "paymentMethod" character varying(30),
       "stripeCheckoutSessionId" character varying(255),
       "stripePaymentIntentId" character varying(255),
+      "sepayTransactionId" character varying(64),
+      "sepayReferenceCode" character varying(255),
       "paidAt" TIMESTAMP,
       "voucherId" uuid,
       "voucherCode" character varying(50),

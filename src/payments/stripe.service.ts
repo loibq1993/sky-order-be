@@ -1,42 +1,20 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { Tenant } from '../entities/tenant.entity';
 import {
   ResolvedStripeConfig,
-  StripeEnvFallback,
   isStripeEnabledForTenant,
   resolveStripeConfig,
 } from './stripe-config.util';
 
+const DEFAULT_FRONTEND_ORIGIN = 'http://localhost:3000';
+
 @Injectable()
 export class StripeService {
-  private readonly envFallback: StripeEnvFallback;
   private readonly clientCache = new Map<string, Stripe>();
 
-  constructor(private readonly configService: ConfigService) {
-    this.envFallback = {
-      secretKey: this.configService.get<string>('app.stripe.secretKey') || '',
-      webhookSecret: this.configService.get<string>('app.stripe.webhookSecret') || '',
-      currency: (this.configService.get<string>('app.stripe.currency') || 'vnd').toLowerCase(),
-      frontendUrl: (
-        this.configService.get<string>('app.stripe.frontendUrl') || 'http://localhost:3000'
-      ).replace(/\/$/, ''),
-    };
-  }
-
-  getEnvFallback(): StripeEnvFallback {
-    return this.envFallback;
-  }
-
   resolveConfig(tenant: Tenant): ResolvedStripeConfig | null {
-    return resolveStripeConfig(tenant, this.envFallback);
-  }
-
-  /** Platform-wide env fallback (when tenant has no own keys). */
-  resolveEnvConfig(): ResolvedStripeConfig | null {
-    if (!this.envFallback.secretKey) return null;
-    return { ...this.envFallback };
+    return resolveStripeConfig(tenant);
   }
 
   isConfiguredForTenant(tenant: Tenant): boolean {
@@ -44,12 +22,7 @@ export class StripeService {
   }
 
   isEnabledForTenant(tenant: Tenant): boolean {
-    return isStripeEnabledForTenant(tenant, this.envFallback);
-  }
-
-  /** @deprecated Use isEnabledForTenant(tenant). Kept for backward compatibility. */
-  isConfigured(): boolean {
-    return Boolean(this.envFallback.secretKey);
+    return isStripeEnabledForTenant(tenant);
   }
 
   private client(config: ResolvedStripeConfig): Stripe {
@@ -65,7 +38,7 @@ export class StripeService {
     const config = this.resolveConfig(tenant);
     if (!config) {
       throw new ServiceUnavailableException(
-        'Stripe is not configured for this restaurant (add keys in Settings → Payment)',
+        'Stripe is not configured for this restaurant (add keys in Admin → Settings → Stripe)',
       );
     }
     return config;
@@ -94,16 +67,15 @@ export class StripeService {
     }
   }
 
-  /** Origin only, no trailing slash — from client or FRONTEND_URL fallback. */
-  resolveFrontendBase(config: ResolvedStripeConfig, frontendOrigin?: string): string {
-    const fallback = config.frontendUrl.replace(/\/$/, '');
-    if (!frontendOrigin?.trim()) return fallback;
+  /** Origin only, no trailing slash — from client request (checkout redirect). */
+  resolveFrontendBase(frontendOrigin?: string): string {
+    if (!frontendOrigin?.trim()) return DEFAULT_FRONTEND_ORIGIN;
     try {
       const u = new URL(frontendOrigin.trim());
-      if (u.protocol !== 'http:' && u.protocol !== 'https:') return fallback;
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return DEFAULT_FRONTEND_ORIGIN;
       return `${u.protocol}//${u.host}`;
     } catch {
-      return fallback;
+      return DEFAULT_FRONTEND_ORIGIN;
     }
   }
 
@@ -121,7 +93,7 @@ export class StripeService {
     },
   ): Promise<Stripe.Checkout.Session> {
     const stripe = this.client(config);
-    const base = this.resolveFrontendBase(config, params.frontendOrigin);
+    const base = this.resolveFrontendBase(params.frontendOrigin);
     const returnQuery = params.returnTo
       ? `&return_to=${encodeURIComponent(params.returnTo)}`
       : '';

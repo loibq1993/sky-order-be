@@ -12,14 +12,6 @@ export interface ResolvedStripeConfig {
   secretKey: string;
   webhookSecret: string;
   currency: string;
-  frontendUrl: string;
-}
-
-export interface StripeEnvFallback {
-  secretKey: string;
-  webhookSecret: string;
-  currency: string;
-  frontendUrl: string;
 }
 
 export interface PublicStripeSettings {
@@ -80,29 +72,25 @@ export function getTenantStripeSettings(tenant: Tenant): TenantStripeSettings {
   };
 }
 
-export function resolveStripeConfig(
-  tenant: Tenant,
-  env: StripeEnvFallback,
-): ResolvedStripeConfig | null {
+/** Stripe keys from tenant DB only (settings.stripe). */
+export function resolveStripeConfig(tenant: Tenant): ResolvedStripeConfig | null {
   const fromTenant = getTenantStripeSettings(tenant);
-  const secretKey = fromTenant.secretKey || env.secretKey;
-  if (!secretKey) return null;
+  if (!fromTenant.secretKey) return null;
 
   const tenantCurrency = tenant.currency?.trim().toLowerCase();
-  const currency = fromTenant.currency || tenantCurrency || env.currency || 'vnd';
+  const currency = fromTenant.currency || tenantCurrency || 'vnd';
 
   return {
-    secretKey,
-    webhookSecret: fromTenant.webhookSecret || env.webhookSecret,
+    secretKey: fromTenant.secretKey,
+    webhookSecret: fromTenant.webhookSecret || '',
     currency,
-    frontendUrl: env.frontendUrl,
   };
 }
 
-export function isStripeEnabledForTenant(tenant: Tenant, env: StripeEnvFallback): boolean {
+export function isStripeEnabledForTenant(tenant: Tenant): boolean {
   const stripe = getTenantStripeSettings(tenant);
   if (stripe.enabled !== true) return false;
-  return resolveStripeConfig(tenant, env) !== null;
+  return resolveStripeConfig(tenant) !== null;
 }
 
 export function maskSecret(value: string | undefined): string | undefined {
@@ -111,12 +99,9 @@ export function maskSecret(value: string | undefined): string | undefined {
   return `${value.slice(0, 7)}…${value.slice(-4)}`;
 }
 
-export function toPublicStripeSettings(
-  tenant: Tenant,
-  env: StripeEnvFallback,
-): PublicStripeSettings {
+export function toPublicStripeSettings(tenant: Tenant): PublicStripeSettings {
   const stripe = getTenantStripeSettings(tenant);
-  const enabled = isStripeEnabledForTenant(tenant, env);
+  const enabled = isStripeEnabledForTenant(tenant);
   return {
     enabled,
     publishableKey: stripe.publishableKey || undefined,
@@ -125,61 +110,58 @@ export function toPublicStripeSettings(
 
 export function toAdminStripeSettings(
   tenant: Tenant,
-  env: StripeEnvFallback,
   apiPublicBase?: string,
 ): AdminStripeSettings {
   const stripe = getTenantStripeSettings(tenant);
-  const resolved = resolveStripeConfig(tenant, env);
-  const base = apiPublicBase || env.frontendUrl.replace(/\/$/, '');
+  const base = apiPublicBase || 'http://localhost:4500';
   const toggledOn = stripe.enabled === true;
-  const active = isStripeEnabledForTenant(tenant, env);
+  const active = isStripeEnabledForTenant(tenant);
+  if (!toggledOn) {
+    return { enabled: false, active: false, hasSecretKey: false, hasWebhookSecret: false };
+  }
   return {
-    enabled: toggledOn,
+    enabled: true,
     active,
     publishableKey: stripe.publishableKey,
-    hasSecretKey: Boolean(stripe.secretKey || env.secretKey),
+    hasSecretKey: Boolean(stripe.secretKey),
     hasWebhookSecret: Boolean(stripe.webhookSecret),
     webhookUrl: buildStripeWebhookUrl(base, tenant.id),
-    currency: stripe.currency || tenant.currency?.toLowerCase() || env.currency,
-    secretKeyPreview: maskSecret(
-      stripe.secretKey || (resolved?.secretKey === env.secretKey ? env.secretKey : stripe.secretKey),
-    ),
+    currency: stripe.currency || tenant.currency?.toLowerCase() || 'vnd',
+    secretKeyPreview: maskSecret(stripe.secretKey),
     webhookSecretPreview: maskSecret(stripe.webhookSecret),
   };
 }
 
-/** Webhook verify for tenant-scoped endpoint — requires whsec in tenant settings (no env fallback). */
-export function resolveTenantWebhookConfig(
-  tenant: Tenant,
-  env: StripeEnvFallback,
-): ResolvedStripeConfig | null {
+/** Webhook verify for tenant-scoped endpoint — keys from DB only. */
+export function resolveTenantWebhookConfig(tenant: Tenant): ResolvedStripeConfig | null {
   const fromTenant = getTenantStripeSettings(tenant);
   if (!fromTenant.webhookSecret || !fromTenant.secretKey) return null;
   const tenantCurrency = tenant.currency?.trim().toLowerCase();
   return {
     secretKey: fromTenant.secretKey,
     webhookSecret: fromTenant.webhookSecret,
-    currency: fromTenant.currency || tenantCurrency || env.currency || 'vnd',
-    frontendUrl: env.frontendUrl,
+    currency: fromTenant.currency || tenantCurrency || 'vnd',
   };
 }
 
 export function sanitizeTenantSettingsForPublic(
   tenant: Tenant,
-  env: StripeEnvFallback,
+  sepay?: Record<string, unknown>,
 ): Record<string, unknown> {
   const settings = { ...(asRecord(tenant.settings) || {}) };
-  settings.stripe = toPublicStripeSettings(tenant, env);
+  settings.stripe = toPublicStripeSettings(tenant);
+  if (sepay) settings.sepay = sepay;
   return settings;
 }
 
 export function sanitizeTenantSettingsForAdmin(
   tenant: Tenant,
-  env: StripeEnvFallback,
   apiPublicBase?: string,
+  sepay?: Record<string, unknown>,
 ): Record<string, unknown> {
   const settings = { ...(asRecord(tenant.settings) || {}) };
-  settings.stripe = toAdminStripeSettings(tenant, env, apiPublicBase);
+  settings.stripe = toAdminStripeSettings(tenant, apiPublicBase);
+  if (sepay) settings.sepay = sepay;
   return settings;
 }
 
@@ -206,6 +188,11 @@ export function mergeTenantSettings(
       }
 
       base.stripe = nextStripe;
+      continue;
+    }
+
+    if (key === 'sepay' && value && typeof value === 'object' && !Array.isArray(value)) {
+      base.sepay = { ...(asRecord(base.sepay) || {}), ...(value as Record<string, unknown>) };
       continue;
     }
 

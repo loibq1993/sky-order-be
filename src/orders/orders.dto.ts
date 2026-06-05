@@ -448,6 +448,7 @@ export enum PaymentMethod {
     QR = 'qr',
     CARD = 'card',
     STRIPE = 'stripe',
+    VIETQR = 'vietqr',
 }
 
 export class UpdateOrderStatusDto {
