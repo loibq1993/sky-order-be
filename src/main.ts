@@ -51,7 +51,8 @@ async function bootstrap() {
     express.json({
       limit: '12mb',
       verify: (req: express.Request & { rawBody?: Buffer }, _res, buf) => {
-        if (req.originalUrl?.includes('/payments/stripe/webhook')) {
+        if (req.originalUrl?.includes('/payments/stripe/webhook') ||
+          req.originalUrl?.includes('/payments/sepay/webhook')) {
           req.rawBody = buf;
         }
       },

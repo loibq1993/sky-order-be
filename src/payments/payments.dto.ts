@@ -78,3 +78,37 @@ export class VietQrPaymentResponseDto {
   @ApiProperty({ example: 'unpaid' })
   paymentStatus: string;
 }
+
+export class CreateSepayPgCheckoutDto {
+  @ApiProperty({ description: 'Order ID to pay' })
+  @IsUUID()
+  orderId: string;
+
+  @ApiPropertyOptional({
+    description: 'Storefront origin for SePay return URLs',
+    example: 'http://demo.localhost:3000',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  @Matches(/^https?:\/\/[^/]+$/i, {
+    message: 'frontendOrigin must be an origin URL without path',
+  })
+  frontendOrigin?: string;
+
+  @ApiPropertyOptional({ enum: ['BANK_TRANSFER', 'NAPAS_BANK_TRANSFER'] })
+  @IsOptional()
+  @IsString()
+  paymentMethod?: 'BANK_TRANSFER' | 'NAPAS_BANK_TRANSFER';
+}
+
+export class SepayPgCheckoutResponseDto {
+  @ApiProperty()
+  orderId: string;
+
+  @ApiProperty({ example: 'https://pay.sepay.vn/v1/checkout/init' })
+  checkoutUrl: string;
+
+  @ApiProperty({ description: 'Hidden form fields including signature' })
+  formFields: Record<string, string | number>;
+}

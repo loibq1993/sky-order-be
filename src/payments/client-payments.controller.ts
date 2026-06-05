@@ -24,6 +24,8 @@ import {
   CheckoutSessionResponseDto,
   PaymentStatusResponseDto,
   VietQrPaymentResponseDto,
+  SepayPgCheckoutResponseDto,
+  CreateSepayPgCheckoutDto,
 } from './payments.dto';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
@@ -77,6 +79,25 @@ export class ClientPaymentsController {
     @RestaurantId() restaurantId: string,
   ): Promise<VietQrPaymentResponseDto> {
     return this.paymentsService.getVietQrPayment(orderId, restaurantId);
+  }
+
+  @Post('sepay-pg/checkout')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Create SePay Payment Gateway checkout form (redirect)' })
+  @ApiResponse({ status: 201, type: SepayPgCheckoutResponseDto })
+  async createSepayPgCheckout(
+    @Body() dto: CreateSepayPgCheckoutDto,
+    @RestaurantId() restaurantId: string,
+    @Req() req: Request,
+  ): Promise<SepayPgCheckoutResponseDto> {
+    const frontendOrigin =
+      dto.frontendOrigin?.trim() || resolveFrontendOriginFromRequest(req);
+    return this.paymentsService.createSepayPgCheckout(
+      dto.orderId,
+      restaurantId,
+      frontendOrigin,
+      dto.paymentMethod,
+    );
   }
 
   @Get('order/:orderId/status')

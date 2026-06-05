@@ -532,6 +532,7 @@ export class OrdersService {
       card: 'thẻ',
       stripe: 'thẻ tín dụng',
       vietqr: 'chuyển khoản QR',
+      sepay_pg: 'SePay PG',
     };
     return labels[method] || method;
   }

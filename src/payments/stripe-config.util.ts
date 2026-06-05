@@ -224,7 +224,20 @@ export function mergeTenantSettings(
     }
 
     if (key === 'sepay' && value && typeof value === 'object' && !Array.isArray(value)) {
-      base.sepay = { ...(asRecord(base.sepay) || {}), ...(value as Record<string, unknown>) };
+      const prevSepay = asRecord(base.sepay) || {};
+      const nextSepay: Record<string, unknown> = { ...prevSepay };
+
+      for (const [sepayKey, sepayValue] of Object.entries(value as Record<string, unknown>)) {
+        if (
+          (sepayKey === 'webhookSecret' || sepayKey === 'pgSecretKey') &&
+          (sepayValue === '' || sepayValue === undefined || sepayValue === null)
+        ) {
+          continue;
+        }
+        nextSepay[sepayKey] = sepayValue;
+      }
+
+      base.sepay = nextSepay;
       continue;
     }
 

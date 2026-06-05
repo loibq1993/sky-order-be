@@ -4,13 +4,13 @@ import {
   buildSepayQrImageUrl,
   buildSepayTransferContent,
   getTenantSepaySettings,
-  isSepayEnabledForTenant,
+  isSepayVietQrEnabledForTenant,
 } from './sepay-config.util';
 
 @Injectable()
 export class SepayService {
   isEnabledForTenant(tenant: Tenant): boolean {
-    return isSepayEnabledForTenant(tenant);
+    return isSepayVietQrEnabledForTenant(tenant);
   }
 
   buildQrForOrder(tenant: Tenant, orderNumber: string, amount: number): {
@@ -19,7 +19,7 @@ export class SepayService {
     amount: number;
   } {
     const settings = getTenantSepaySettings(tenant);
-    if (!isSepayEnabledForTenant(tenant) || !settings.accountNumber || !settings.bankCode) {
+    if (!isSepayVietQrEnabledForTenant(tenant) || !settings.accountNumber || !settings.bankCode) {
       throw new ServiceUnavailableException('SePay VietQR is not configured for this restaurant');
     }
     const transferContent = buildSepayTransferContent(orderNumber, settings.orderCodePrefix);

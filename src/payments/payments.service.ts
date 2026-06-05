@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { EntityManager, IsNull } from 'typeorm';
 import Stripe from 'stripe';
@@ -15,15 +16,23 @@ import { OrderStatus } from '../orders/orders.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StripeService } from './stripe.service';
 import { SepayService } from './sepay.service';
+import { SepayPgService } from './sepay-pg.service';
 import { ResolvedStripeConfig, resolveTenantWebhookConfig, getTenantStripeSettings } from './stripe-config.util';
 import {
+  buildSepayTransferContent,
   getTenantSepaySettings,
   transferContentMatchesOrder,
 } from './sepay-config.util';
 import {
+  sepayWebhookHasHmacHeaders,
+  verifySepayWebhookSignature,
+} from './sepay-webhook.util';
+import {
   CheckoutSessionResponseDto,
   PaymentStatusResponseDto,
   VietQrPaymentResponseDto,
+  SepayPgCheckoutResponseDto,
+  CreateSepayPgCheckoutDto,
 } from './payments.dto';
 
 const UNPAID_STATUSES = ['unpaid', 'failed'];
@@ -37,6 +46,7 @@ export class PaymentsService {
     private readonly tenantService: TenantService,
     private readonly stripeService: StripeService,
     private readonly sepayService: SepayService,
+    private readonly sepayPgService: SepayPgService,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -470,11 +480,180 @@ export class PaymentsService {
     });
   }
 
-  async handleSepayWebhook(restaurantId: string, body: Record<string, unknown>): Promise<void> {
+  async createSepayPgCheckout(
+    orderId: string,
+    restaurantId: string,
+    frontendOrigin: string | undefined,
+    paymentMethod?: 'BANK_TRANSFER' | 'NAPAS_BANK_TRANSFER',
+  ): Promise<SepayPgCheckoutResponseDto> {
+    const tenant = await this.tenantService.findById(restaurantId);
+    if (!this.sepayPgService.isEnabledForTenant(tenant)) {
+      throw new ServiceUnavailableException(
+        'SePay PG chưa bật (Admin → Cài đặt → SePay → Cổng thanh toán).',
+      );
+    }
+    const origin = frontendOrigin?.trim();
+    if (!origin) {
+      throw new BadRequestException('frontendOrigin is required for SePay PG checkout');
+    }
+
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensurePaymentColumns(manager);
+      const order = await manager.getRepository(TenantOrder).findOne({
+        where: { id: orderId, deletedAt: IsNull() },
+      });
+      if (!order) {
+        throw new NotFoundException(`Order with ID ${orderId} not found`);
+      }
+      if (order.paymentStatus === 'paid') {
+        throw new BadRequestException('Order is already paid');
+      }
+      if (order.status === OrderStatus.CANCELLED) {
+        throw new BadRequestException('Cannot pay a cancelled order');
+      }
+
+      const amount = Math.round(Number(order.total));
+      const checkout = this.sepayPgService.buildCheckoutForOrder({
+        tenant,
+        orderNumber: order.orderNumber,
+        amount,
+        frontendOrigin: origin,
+        orderId: order.id,
+        restaurantId,
+        paymentMethod,
+      });
+
+      if (order.paymentStatus !== 'paid') {
+        order.paymentStatus = 'processing';
+        order.paymentMethod = 'sepay_pg';
+        await manager.getRepository(TenantOrder).save(order);
+      }
+
+      return {
+        orderId: order.id,
+        checkoutUrl: checkout.checkoutUrl,
+        formFields: checkout.formFields,
+      };
+    });
+  }
+
+  async handleSepayPgIpn(restaurantId: string, body: Record<string, unknown>): Promise<void> {
+    const tenant = await this.tenantService.findById(restaurantId);
+    if (!this.sepayPgService.isEnabledForTenant(tenant)) {
+      this.logger.warn(`SePay PG IPN ignored: PG disabled for tenant ${restaurantId}`);
+      return;
+    }
+
+    const notificationType = String(body.notification_type ?? '');
+    if (notificationType !== 'ORDER_PAID') {
+      this.logger.log(`SePay PG IPN ignored: notification_type=${notificationType || 'n/a'}`);
+      return;
+    }
+
+    const orderPayload = body.order as Record<string, unknown> | undefined;
+    const invoiceNumber = String(orderPayload?.order_invoice_number ?? '').trim();
+    if (!invoiceNumber) {
+      this.logger.warn('SePay PG IPN ignored: missing order_invoice_number');
+      return;
+    }
+
+    const txPayload = body.transaction as Record<string, unknown> | undefined;
+    const txId = txPayload?.transaction_id != null ? String(txPayload.transaction_id) : '';
+    const transferAmount = Number(orderPayload?.order_amount ?? txPayload?.transaction_amount);
+
+    const prefix = getTenantSepaySettings(tenant).orderCodePrefix;
+
+    const matched = await this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensurePaymentColumns(manager);
+      const orderRepo = manager.getRepository(TenantOrder);
+      const candidates = await orderRepo.find({
+        where: { deletedAt: IsNull() },
+        order: { createdAt: 'DESC' },
+        take: 200,
+      });
+
+      const order = candidates.find((o) =>
+        transferContentMatchesOrder(invoiceNumber, o.orderNumber, prefix),
+      );
+      if (!order) return null;
+      if (order.paymentStatus === 'paid') {
+        return { duplicate: true as const, order };
+      }
+
+      if (Number.isFinite(transferAmount) && transferAmount > 0) {
+        const expectedAmount = Math.round(Number(order.total));
+        if (Math.round(transferAmount) !== expectedAmount) {
+          this.logger.warn(
+            `SePay PG IPN amount mismatch for order ${order.orderNumber}: got ${transferAmount}, expected ${expectedAmount}`,
+          );
+          return null;
+        }
+      }
+
+      order.paymentStatus = 'paid';
+      order.paymentMethod = 'sepay_pg';
+      order.status = OrderStatus.COMPLETED;
+      order.paidAt = new Date();
+      if (txId) order.sepayTransactionId = txId;
+      await orderRepo.save(order);
+      return { duplicate: false as const, order };
+    });
+
+    if (!matched) {
+      this.logger.warn(
+        `SePay PG IPN: no matching order for invoice="${invoiceNumber}" tenant=${restaurantId}`,
+      );
+      return;
+    }
+
+    if (!matched.duplicate) {
+      this.logger.log(`Order ${matched.order.orderNumber} marked paid via SePay PG IPN`);
+      await this.notificationsService.create(restaurantId, {
+        type: 'order_completed',
+        title: `Thanh toán SePay — đơn ${matched.order.orderNumber}`,
+        message: 'Khách đã thanh toán qua cổng SePay.',
+        tableNumber: matched.order.tableNumber ?? null,
+      });
+    }
+  }
+
+  async handleSepayWebhook(
+    restaurantId: string,
+    rawBody: Buffer,
+    signatureHeader?: string,
+    timestampHeader?: string,
+  ): Promise<void> {
     const tenant = await this.tenantService.findById(restaurantId);
     if (!this.sepayService.isEnabledForTenant(tenant)) {
       this.logger.warn(`SePay webhook ignored: VietQR disabled for tenant ${restaurantId}`);
       return;
+    }
+
+    const sepaySettings = getTenantSepaySettings(tenant);
+    const hasHmac = sepayWebhookHasHmacHeaders(signatureHeader, timestampHeader);
+
+    if (sepaySettings.webhookSecret) {
+      verifySepayWebhookSignature({
+        rawBody,
+        signatureHeader,
+        timestampHeader,
+        secret: sepaySettings.webhookSecret,
+      });
+    } else if (hasHmac) {
+      throw new UnauthorizedException(
+        'SePay sent HMAC headers but webhook secret is not configured. Set it in Admin → Settings → SePay.',
+      );
+    } else {
+      this.logger.warn(
+        `SePay webhook accepted without HMAC for tenant ${restaurantId}. Configure webhook secret in Admin → Settings → SePay.`,
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(rawBody.toString('utf8')) as Record<string, unknown>;
+    } catch {
+      throw new BadRequestException('Invalid SePay webhook JSON body');
     }
 
     const transferType = String(body.transferType ?? '').toLowerCase();
