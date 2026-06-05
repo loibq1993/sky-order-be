@@ -62,6 +62,15 @@ export class TenantService {
     return tenant;
   }
 
+  /** Active tenant IDs (for cross-tenant lookups such as Stripe webhooks). */
+  async listActiveTenantIds(): Promise<string[]> {
+    const tenants = await this.tenantRepository.find({
+      where: { deletedAt: IsNull() },
+      select: ['id'],
+    });
+    return tenants.map((t) => t.id);
+  }
+
   /**
    * Resolve tenant by domain (host or host:port).
    * - Khớp exact; nếu query có port thì thử thêm bản không port.

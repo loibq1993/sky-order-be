@@ -1,10 +1,34 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsUUID } from 'class-validator';
+import { IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
 
 export class CreateCheckoutSessionDto {
   @ApiProperty({ description: 'Order ID to pay' })
   @IsUUID()
   orderId: string;
+
+  @ApiPropertyOptional({
+    description: 'Relative path to return after Stripe redirect (e.g. /admin?section=orders)',
+    example: '/admin?section=orders',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^\/(?!\/).*$/, {
+    message: 'returnTo must be a relative path starting with /',
+  })
+  returnTo?: string;
+
+  @ApiPropertyOptional({
+    description: 'Storefront origin (e.g. http://demo.localhost:3000) for Stripe success/cancel URLs',
+    example: 'http://demo.localhost:3000',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  @Matches(/^https?:\/\/[^/]+$/i, {
+    message: 'frontendOrigin must be an origin URL without path (e.g. http://demo.localhost:3000)',
+  })
+  frontendOrigin?: string;
 }
 
 export class CheckoutSessionResponseDto {
@@ -27,4 +51,10 @@ export class PaymentStatusResponseDto {
 
   @ApiPropertyOptional()
   paidAt?: Date;
+
+  @ApiPropertyOptional({
+    description:
+      'True when Stripe Checkout session is paid (read-only). DB may still be processing until webhook runs.',
+  })
+  checkoutPaidOnStripe?: boolean;
 }

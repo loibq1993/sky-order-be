@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 
@@ -44,6 +44,40 @@ export class StripeService {
     return Math.max(rounded, 1);
   }
 
+  /** Stripe minimum charge (whole units). See https://stripe.com/docs/currencies#minimum-and-maximum-charge-amounts */
+  getMinimumChargeAmount(): number {
+    const c = this.currency.toLowerCase();
+    if (c === 'vnd') return 10_000;
+    if (c === 'usd' || c === 'eur' || c === 'gbp') return 50;
+    return 1;
+  }
+
+  assertMeetsMinimumCharge(amount: number): void {
+    const min = this.getMinimumChargeAmount();
+    if (amount < min) {
+      const label =
+        this.currency.toLowerCase() === 'vnd'
+          ? `${min.toLocaleString('vi-VN')}đ`
+          : `${min} ${this.currency.toUpperCase()}`;
+      throw new BadRequestException(
+        `Số tiền thanh toán tối thiểu là ${label}. Vui lòng kiểm tra giá món trong đơn.`,
+      );
+    }
+  }
+
+  /** Origin only, no trailing slash — from client or FRONTEND_URL fallback. */
+  resolveFrontendBase(frontendOrigin?: string): string {
+    const fallback = this.frontendUrl.replace(/\/$/, '');
+    if (!frontendOrigin?.trim()) return fallback;
+    try {
+      const u = new URL(frontendOrigin.trim());
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return fallback;
+      return `${u.protocol}//${u.host}`;
+    } catch {
+      return fallback;
+    }
+  }
+
   async createCheckoutSession(params: {
     orderId: string;
     orderNumber: string;
@@ -51,10 +85,18 @@ export class StripeService {
     amount: number;
     lineItems: Stripe.Checkout.SessionCreateParams.LineItem[];
     tableNumber?: number;
+    returnTo?: string;
+    frontendOrigin?: string;
   }): Promise<Stripe.Checkout.Session> {
     const stripe = this.client();
-    const successUrl = `${this.frontendUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `${this.frontendUrl}/payment/cancel?order_id=${params.orderId}`;
+    const base = this.resolveFrontendBase(params.frontendOrigin);
+    const returnQuery = params.returnTo
+      ? `&return_to=${encodeURIComponent(params.returnTo)}`
+      : '';
+    const originQuery = `&return_origin=${encodeURIComponent(base)}`;
+    const restaurantQuery = `&restaurantId=${encodeURIComponent(params.restaurantId)}`;
+    const successUrl = `${base}/payment/success?session_id={CHECKOUT_SESSION_ID}${originQuery}${restaurantQuery}${returnQuery}`;
+    const cancelUrl = `${base}/payment/cancel?order_id=${params.orderId}${originQuery}${restaurantQuery}${returnQuery}`;
 
     return stripe.checkout.sessions.create({
       mode: 'payment',

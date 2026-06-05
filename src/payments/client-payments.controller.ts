@@ -6,15 +6,15 @@ import {
   HttpStatus,
   Param,
   Post,
-  Query,
+  Req,
   UseGuards,
   UseInterceptors,
   ClassSerializerInterceptor,
 } from '@nestjs/common';
+import { Request } from 'express';
 import {
   ApiOperation,
   ApiParam,
-  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -26,6 +26,20 @@ import {
 } from './payments.dto';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+
+function resolveFrontendOriginFromRequest(req: Request): string | undefined {
+  const origin = req.headers.origin;
+  if (typeof origin === 'string' && origin.trim()) return origin.trim();
+
+  const xClient = req.headers['x-client-host'] ?? req.headers['x-tenant-domain'];
+  const host = typeof xClient === 'string' ? xClient.trim() : '';
+  if (!host) return undefined;
+  if (/^https?:\/\//i.test(host)) return host.replace(/\/$/, '');
+  const proto =
+    (req.headers['x-forwarded-proto'] as string) ||
+    (host.includes('localhost') || host.startsWith('127.') ? 'http' : 'https');
+  return `${proto}://${host}`.replace(/\/$/, '');
+}
 
 @ApiTags('payments-client')
 @Controller('client/payments')
@@ -41,8 +55,16 @@ export class ClientPaymentsController {
   async createCheckout(
     @Body() dto: CreateCheckoutSessionDto,
     @RestaurantId() restaurantId: string,
+    @Req() req: Request,
   ): Promise<CheckoutSessionResponseDto> {
-    return this.paymentsService.createCheckoutSession(dto.orderId, restaurantId);
+    const frontendOrigin =
+      dto.frontendOrigin?.trim() || resolveFrontendOriginFromRequest(req);
+    return this.paymentsService.createCheckoutSession(
+      dto.orderId,
+      restaurantId,
+      dto.returnTo,
+      frontendOrigin,
+    );
   }
 
   @Get('order/:orderId/status')

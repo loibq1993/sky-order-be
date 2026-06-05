@@ -431,6 +431,10 @@ export class OrdersService {
         .where('order.tableId = :tableId', { tableId })
         .andWhere('order.deletedAt IS NULL')
         .andWhere('order.status IN (:...statuses)', { statuses: ACTIVE_ORDER_STATUSES })
+        .andWhere(
+          '(order.paymentStatus IS NULL OR order.paymentStatus != :paid)',
+          { paid: 'paid' },
+        )
         .orderBy('order.createdAt', 'DESC')
         .getMany();
       return orders.map((o) => this.mapToResponseDto(o));

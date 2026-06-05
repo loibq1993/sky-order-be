@@ -3,6 +3,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Logger,
   Post,
   Req,
   BadRequestException,
@@ -14,6 +15,8 @@ import { PaymentsService } from './payments.service';
 @ApiExcludeController()
 @Controller('payments/stripe')
 export class StripeWebhookController {
+  private readonly logger = new Logger(StripeWebhookController.name);
+
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @Post('webhook')
@@ -24,6 +27,7 @@ export class StripeWebhookController {
   ): Promise<{ received: boolean }> {
     const rawBody = req.rawBody ?? (req.body as Buffer | undefined);
     if (!rawBody || !Buffer.isBuffer(rawBody)) {
+      this.logger.error('Stripe webhook: missing raw body (check express.json verify hook)');
       throw new BadRequestException('Missing raw body for Stripe webhook');
     }
     if (!signature) {

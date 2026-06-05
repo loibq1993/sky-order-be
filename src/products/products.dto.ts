@@ -266,6 +266,37 @@ export class UpdateProductDto {
     tempImageFilename?: string;
 }
 
+export class ProductBuyOfferDto {
+    @ApiProperty()
+    id: string;
+
+    @ApiProperty()
+    name: string;
+
+    @ApiProperty()
+    label: string;
+
+    @ApiProperty()
+    buyQuantity: number;
+
+    @ApiProperty()
+    getQuantity: number;
+}
+
+export class ProductPromotionInfoDto {
+    @ApiProperty()
+    id: string;
+
+    @ApiProperty()
+    name: string;
+
+    @ApiProperty()
+    label: string;
+
+    @ApiPropertyOptional({ enum: ['standard', 'happy_hour'] })
+    promotionType?: string;
+}
+
 export class ProductResponseDto {
     @ApiProperty({
         description: 'Product ID',
@@ -398,34 +429,3 @@ export class ProductResponseDto {
     })
     buyOffer?: ProductBuyOfferDto;
 }
-
-export class ProductBuyOfferDto {
-    @ApiProperty()
-    id: string;
-
-    @ApiProperty()
-    name: string;
-
-    @ApiProperty()
-    label: string;
-
-    @ApiProperty()
-    buyQuantity: number;
-
-    @ApiProperty()
-    getQuantity: number;
-}
-
-export class ProductPromotionInfoDto {
-    @ApiProperty()
-    id: string;
-
-    @ApiProperty()
-    name: string;
-
-    @ApiProperty()
-    label: string;
-
-    @ApiPropertyOptional({ enum: ['standard', 'happy_hour'] })
-    promotionType?: string;
-} 
