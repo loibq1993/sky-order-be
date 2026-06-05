@@ -178,9 +178,66 @@ export class AdminService {
     search?: string,
     restaurantId?: string,
   ) {
-    if (!restaurantId) {
-      throw new BadRequestException('restaurantId (tenant) is required to list users');
+    if (restaurantId) {
+      const tenant = await this.tenantService.findById(restaurantId);
+      const result = await this.queryUsersInTenant(restaurantId, search);
+      const start = (page - 1) * limit;
+      const users = result
+        .slice(start, start + limit)
+        .map((u) => this.attachRestaurantToUser(u, tenant));
+      return {
+        users,
+        total: result.length,
+        page,
+        limit,
+        totalPages: Math.ceil(result.length / limit) || 1,
+      };
     }
+
+    const tenants = await this.tenantRepository.find({
+      where: { deletedAt: IsNull() },
+      order: { name: 'ASC' },
+    });
+    const allUsers: Array<ReturnType<AdminService['attachRestaurantToUser']>> = [];
+    for (const tenant of tenants) {
+      const tenantUsers = await this.queryUsersInTenant(tenant.id, search);
+      for (const user of tenantUsers) {
+        allUsers.push(this.attachRestaurantToUser(user, tenant));
+      }
+    }
+    allUsers.sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    const total = allUsers.length;
+    const start = (page - 1) * limit;
+    return {
+      users: allUsers.slice(start, start + limit),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  private attachRestaurantToUser(
+    user: Omit<TenantUser, 'passwordHash'>,
+    tenant: Tenant,
+  ) {
+    return {
+      ...user,
+      restaurantId: tenant.id,
+      restaurant: {
+        id: tenant.id,
+        name: tenant.name,
+        isActive: tenant.isActive,
+      },
+    };
+  }
+
+  private async queryUsersInTenant(
+    restaurantId: string,
+    search?: string,
+  ): Promise<Array<Omit<TenantUser, 'passwordHash'>>> {
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
       const repo = manager.getRepository(TenantUser);
       const qb = repo
@@ -192,21 +249,11 @@ export class AdminService {
           { search: `%${search}%` },
         );
       }
-      const [users, total] = await qb
-        .orderBy('user.createdAt', 'DESC')
-        .skip((page - 1) * limit)
-        .take(limit)
-        .getManyAndCount();
-      return {
-        users: users.map((u) => {
-          const { passwordHash, ...rest } = u;
-          return rest;
-        }),
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      const users = await qb.orderBy('user.createdAt', 'DESC').getMany();
+      return users.map((u) => {
+        const { passwordHash, ...rest } = u;
+        return rest;
+      });
     });
   }
 
