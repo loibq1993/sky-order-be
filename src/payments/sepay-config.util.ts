@@ -1,5 +1,5 @@
 import { Tenant } from '../entities/tenant.entity';
-import { normalizeApiPublicBase } from './stripe-config.util';
+import { resolveTenantWebhookPublicBase } from './stripe-config.util';
 
 export interface TenantSepaySettings {
   enabled?: boolean;
@@ -18,6 +18,7 @@ export interface AdminSepaySettings extends PublicSepaySettings {
   accountNumber?: string;
   bankCode?: string;
   orderCodePrefix?: string;
+  webhookPublicBase?: string;
   webhookUrl?: string;
 }
 
@@ -91,9 +92,12 @@ export function buildSepayQrImageUrl(params: {
   return url.toString();
 }
 
-export function buildSepayWebhookUrl(apiPublicBase: string, tenantId: string): string {
-  const origin = normalizeApiPublicBase(apiPublicBase);
-  return `${origin}/api/payments/sepay/webhook/${tenantId}`;
+export function buildSepayWebhookUrl(
+  tenant: Tenant,
+  apiPublicBaseFallback?: string,
+): string {
+  const origin = resolveTenantWebhookPublicBase(tenant, apiPublicBaseFallback);
+  return `${origin}/api/payments/sepay/webhook/${tenant.id}`;
 }
 
 export function toPublicSepaySettings(tenant: Tenant): PublicSepaySettings {
@@ -102,18 +106,20 @@ export function toPublicSepaySettings(tenant: Tenant): PublicSepaySettings {
 
 export function toAdminSepaySettings(tenant: Tenant, apiPublicBase?: string): AdminSepaySettings {
   const s = getTenantSepaySettings(tenant);
+  const fallback = apiPublicBase || 'http://localhost:4500';
+  const webhookPublicBase = resolveTenantWebhookPublicBase(tenant, fallback);
   const toggledOn = s.enabled === true;
   const active = isSepayEnabledForTenant(tenant);
   if (!toggledOn) {
     return { enabled: false, active: false };
   }
-  const base = apiPublicBase || 'http://localhost:4500';
   return {
     enabled: true,
     active,
     accountNumber: s.accountNumber,
     bankCode: s.bankCode,
     orderCodePrefix: s.orderCodePrefix,
-    webhookUrl: buildSepayWebhookUrl(base, tenant.id),
+    webhookPublicBase,
+    webhookUrl: buildSepayWebhookUrl(tenant, fallback),
   };
 }

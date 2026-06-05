@@ -1,4 +1,5 @@
 import { Tenant } from '../entities/tenant.entity';
+import { normalizeDomain } from '../utils/domain';
 
 export interface TenantStripeSettings {
   enabled?: boolean;
@@ -27,6 +28,8 @@ export interface AdminStripeSettings extends PublicStripeSettings {
   hasSecretKey: boolean;
   hasWebhookSecret: boolean;
   currency?: string;
+  /** Host used to build webhook URL (tenant customDomain or platform fallback). */
+  webhookPublicBase?: string;
   /** Full URL to register on this tenant's Stripe Dashboard (unique per restaurant). */
   webhookUrl?: string;
   /** Masked preview for admin UI (e.g. sk_test_…AHLq). */
@@ -44,9 +47,36 @@ export function normalizeApiPublicBase(apiBaseUrl: string): string {
   return `http://${trimmed}`.replace(/\/api$/i, '');
 }
 
-export function buildStripeWebhookUrl(apiPublicBase: string, tenantId: string): string {
-  const origin = normalizeApiPublicBase(apiPublicBase);
-  return `${origin}/api/payments/stripe/webhook/${tenantId}`;
+function isLocalWebhookHost(hostWithOptionalPort: string): boolean {
+  const host = (hostWithOptionalPort.split(':')[0] ?? '').toLowerCase();
+  if (!host) return true;
+  if (host === 'localhost' || host === '127.0.0.1') return true;
+  if (host.endsWith('.localhost') || host.endsWith('.local')) return true;
+  return /^\d+\.\d+\.\d+\.\d+$/.test(host);
+}
+
+/**
+ * Public origin for tenant webhooks: tenant.customDomain from DB first, else platform API_BASE_URL.
+ * Stripe/SePay call this URL; Next.js on custom domain proxies /api/* to Nest.
+ */
+export function resolveTenantWebhookPublicBase(
+  tenant: Tenant,
+  apiPublicBaseFallback = 'http://localhost:4500',
+): string {
+  const domain = normalizeDomain(tenant.customDomain);
+  if (domain) {
+    const scheme = isLocalWebhookHost(domain) ? 'http' : 'https';
+    return `${scheme}://${domain}`;
+  }
+  return normalizeApiPublicBase(apiPublicBaseFallback);
+}
+
+export function buildStripeWebhookUrl(
+  tenant: Tenant,
+  apiPublicBaseFallback?: string,
+): string {
+  const origin = resolveTenantWebhookPublicBase(tenant, apiPublicBaseFallback);
+  return `${origin}/api/payments/stripe/webhook/${tenant.id}`;
 }
 
 const SECRET_PLACEHOLDER = '••••••••';
@@ -113,7 +143,8 @@ export function toAdminStripeSettings(
   apiPublicBase?: string,
 ): AdminStripeSettings {
   const stripe = getTenantStripeSettings(tenant);
-  const base = apiPublicBase || 'http://localhost:4500';
+  const fallback = apiPublicBase || 'http://localhost:4500';
+  const webhookPublicBase = resolveTenantWebhookPublicBase(tenant, fallback);
   const toggledOn = stripe.enabled === true;
   const active = isStripeEnabledForTenant(tenant);
   if (!toggledOn) {
@@ -125,7 +156,8 @@ export function toAdminStripeSettings(
     publishableKey: stripe.publishableKey,
     hasSecretKey: Boolean(stripe.secretKey),
     hasWebhookSecret: Boolean(stripe.webhookSecret),
-    webhookUrl: buildStripeWebhookUrl(base, tenant.id),
+    webhookPublicBase,
+    webhookUrl: buildStripeWebhookUrl(tenant, fallback),
     currency: stripe.currency || tenant.currency?.toLowerCase() || 'vnd',
     secretKeyPreview: maskSecret(stripe.secretKey),
     webhookSecretPreview: maskSecret(stripe.webhookSecret),

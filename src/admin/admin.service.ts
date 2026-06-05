@@ -49,7 +49,12 @@ export class AdminService {
     };
   }
 
-  private sanitizeAdmin(tenant: Tenant, apiPublicBase = 'http://localhost:4500'): Tenant {
+  private getApiPublicBase(): string {
+    return process.env.API_BASE_URL?.trim() || 'http://localhost:4500';
+  }
+
+  private sanitizeAdmin(tenant: Tenant): Tenant {
+    const apiPublicBase = this.getApiPublicBase();
     return {
       ...tenant,
       settings: sanitizeTenantSettingsForAdmin(
