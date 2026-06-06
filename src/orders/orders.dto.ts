@@ -315,7 +315,7 @@ export class OrderResponseDto {
 
     @ApiProperty({
         description: 'Order number',
-        example: 'ORD-2023-001'
+        example: 'CF_1780702964927-011'
     })
     orderNumber: string;
 

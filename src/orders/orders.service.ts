@@ -23,6 +23,7 @@ import {
   OrderStatus,
   PaymentMethod,
 } from './orders.dto';
+import { generateOrderNumber } from './order-number.util';
 import { EntityManager } from 'typeorm';
 
 const ACTIVE_ORDER_STATUSES = [
@@ -69,12 +70,6 @@ export class OrdersService {
     await this.ensurePaymentColumns(manager);
     await this.promotionsService.ensureOrderItemPromotionColumns(manager);
     await this.combosService.ensureOrderItemComboIdColumn(manager);
-  }
-
-  private generateOrderNumber(): string {
-    const timestamp = Date.now().toString();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `ORD-${timestamp}-${random}`;
   }
 
   async createOrder(createOrderDto: CreateOrderDto, restaurantId: string): Promise<OrderResponseDto> {
@@ -235,7 +230,7 @@ export class OrdersService {
       const orderTotal = voucherApplication?.finalTotal ?? totalAmount;
 
       const order = orderRepo.create({
-        orderNumber: this.generateOrderNumber(),
+        orderNumber: generateOrderNumber(),
         status: OrderStatus.PENDING,
         orderType: createOrderDto.orderType as string,
         tableId: table?.id ?? null,

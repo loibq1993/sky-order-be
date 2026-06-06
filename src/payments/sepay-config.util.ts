@@ -73,8 +73,10 @@ export function getTenantSepaySettings(tenant: Tenant): TenantSepaySettings {
 
 export function buildSepayTransferContent(orderNumber: string, prefix?: string): string {
   const code = orderNumber.trim();
-  if (!prefix) return code;
-  return `${prefix}${code}`;
+  const p = prefix?.trim();
+  if (!p) return code;
+  if (p.endsWith('_') || p.endsWith('-')) return `${p}${code}`;
+  return `${p}_${code}`;
 }
 
 export function normalizeTransferContent(value: string): string {

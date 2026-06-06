@@ -246,7 +246,7 @@ async function seedTenantData(dataSource: DataSource, tenant: Tenant): Promise<v
 
   // One unpaid order
   const existingOrder = await orderRepo.findOne({
-    where: { orderNumber: 'ORD-DEMO-001' },
+    where: { orderNumber: 'CF_DEMO-001' },
     relations: ['orderItems'],
   });
   if (existingOrder) {
@@ -257,7 +257,7 @@ async function seedTenantData(dataSource: DataSource, tenant: Tenant): Promise<v
   const subtotal = products.slice(0, 2).reduce((sum, p) => sum + Number(p.price), 0);
   const order = await orderRepo.save(
     orderRepo.create({
-      orderNumber: 'ORD-DEMO-001',
+      orderNumber: 'CF_DEMO-001',
       customerName: 'Demo Customer',
       customerPhone: '0900000000',
       customerAddress: null,

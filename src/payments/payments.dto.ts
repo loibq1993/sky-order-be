@@ -63,7 +63,7 @@ export class VietQrPaymentResponseDto {
   @ApiProperty()
   orderId: string;
 
-  @ApiProperty({ example: 'ORD-20250605-001' })
+  @ApiProperty({ example: 'CF_1780702964927-011' })
   orderNumber: string;
 
   @ApiProperty({ example: 150000 })
