@@ -24,6 +24,12 @@ export class CreatePromotionDto {
   @MaxLength(200)
   name: string;
 
+  @ApiPropertyOptional({ description: 'Cover image path' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  image?: string;
+
   @ApiProperty({ enum: ['product', 'category'] })
   @IsEnum(['product', 'category'])
   scope: PromotionScope;
@@ -121,6 +127,12 @@ export class UpdatePromotionDto {
   @MinLength(1)
   @MaxLength(200)
   name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  image?: string | null;
 
   @ApiPropertyOptional({ enum: ['product', 'category'] })
   @IsOptional()
@@ -226,6 +238,9 @@ export class PromotionResponseDto {
 
   @ApiProperty()
   name: string;
+
+  @ApiPropertyOptional()
+  image?: string | null;
 
   @ApiProperty({ enum: ['product', 'category'] })
   scope: PromotionScope;

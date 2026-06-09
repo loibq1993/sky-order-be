@@ -261,6 +261,7 @@ export class CombosService {
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
       await this.ensureCombosTables(manager);
       await this.validateComboItems(manager, dto.items);
+      await this.assertComboPriceBelowRetail(manager, Number(dto.price), dto.items);
 
       const comboRepo = manager.getRepository(TenantCombo);
       const itemRepo = manager.getRepository(TenantComboItem);
@@ -332,7 +333,19 @@ export class CombosService {
       });
       if (!combo) throw new NotFoundException(`Combo ${id} not found`);
 
+      const nextItems =
+        dto.items ??
+        (combo.items ?? []).map((ci) => ({
+          productId: ci.productId,
+          quantity: ci.quantity,
+        }));
+      const nextPrice =
+        dto.price !== undefined ? Number(dto.price) : Number(combo.price);
+
       if (dto.items) await this.validateComboItems(manager, dto.items);
+      if (dto.price !== undefined || dto.items) {
+        await this.assertComboPriceBelowRetail(manager, nextPrice, nextItems);
+      }
 
       if (dto.name !== undefined) combo.name = dto.name;
       if (dto.nameKo !== undefined) combo.nameKo = dto.nameKo;
@@ -405,6 +418,32 @@ export class CombosService {
       if (!product) {
         throw new BadRequestException(`Product ${item.productId} not found`);
       }
+    }
+  }
+
+  /** Giá combo phải thấp hơn tổng giá lẻ từng món × số lượng. */
+  private async assertComboPriceBelowRetail(
+    manager: EntityManager,
+    comboPrice: number,
+    items: { productId: string; quantity: number }[],
+  ): Promise<void> {
+    if (!Number.isFinite(comboPrice) || comboPrice < 0) {
+      throw new BadRequestException('Giá combo không hợp lệ');
+    }
+    const productRepo = manager.getRepository(TenantProduct);
+    let retailTotal = 0;
+    for (const item of items) {
+      const product = await productRepo.findOne({
+        where: { id: item.productId, deletedAt: IsNull() },
+      });
+      if (!product) continue;
+      retailTotal += Number(product.price) * item.quantity;
+    }
+    if (retailTotal <= 0) return;
+    if (comboPrice >= retailTotal) {
+      throw new BadRequestException(
+        `Giá combo phải rẻ hơn tổng giá lẻ các món (${Math.round(retailTotal)}đ). Hiện tại: ${Math.round(comboPrice)}đ.`,
+      );
     }
   }
 }

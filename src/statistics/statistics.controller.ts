@@ -160,4 +160,16 @@ export class StatisticsController {
         const { month: monthNum, year: yearNum } = this.parseMonthYear(month, year);
         return this.statisticsService.getDailyStats(undefined, restaurantId, monthNum, yearNum);
     }
+
+    @Get('bad-debt/summary')
+    @ApiOperation({ summary: 'Get bad debt summary (cancelled/failed payments)' })
+    @ApiResponse({ status: 200, description: 'Returns bad debt amount and count for today, week, and month' })
+    async getBadDebtSummary(
+        @RestaurantId() restaurantId?: string,
+        @Query('month') month?: string,
+        @Query('year') year?: string
+    ) {
+        const { month: monthNum, year: yearNum } = this.parseMonthYear(month, year);
+        return this.statisticsService.getBadDebtSummary(restaurantId, monthNum, yearNum);
+    }
 } 

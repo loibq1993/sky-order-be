@@ -53,6 +53,9 @@ export class VouchersService {
       CREATE UNIQUE INDEX IF NOT EXISTS "IDX_vouchers_code"
       ON vouchers (code) WHERE "deletedAt" IS NULL
     `);
+    await manager.query(`
+      ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS image character varying(500)
+    `);
   }
 
   private generateCode(): string {
@@ -151,6 +154,7 @@ export class VouchersService {
       name: voucher.name,
       nameKo: voucher.nameKo,
       description: voucher.description,
+      image: voucher.image,
       type: voucher.type,
       discountValue: Number(voucher.discountValue),
       productId: voucher.productId,
@@ -196,6 +200,7 @@ export class VouchersService {
         name: dto.name,
         nameKo: dto.nameKo ?? null,
         description: dto.description ?? null,
+        image: dto.image?.trim() || null,
         type: dto.type,
         discountValue:
           dto.type === 'free_item' ? 0 : Number(dto.discountValue ?? 0),
@@ -263,6 +268,7 @@ export class VouchersService {
       if (dto.name !== undefined) voucher.name = dto.name;
       if (dto.nameKo !== undefined) voucher.nameKo = dto.nameKo;
       if (dto.description !== undefined) voucher.description = dto.description;
+      if (dto.image !== undefined) voucher.image = dto.image?.trim() || null;
       if (dto.type !== undefined) voucher.type = dto.type;
       if (dto.discountValue !== undefined) {
         voucher.discountValue = Number(dto.discountValue);

@@ -26,3 +26,9 @@ export function isTenantAdminRole(role: string | undefined): boolean {
   if (!role) return false;
   return (TENANT_ADMIN_ROLES as readonly string[]).includes(role);
 }
+
+/** Đọc thực đơn / danh mục (màn Phục vụ bàn, bếp, lễ tân). */
+export const TENANT_MENU_READ_ROLES = [
+  ...TENANT_ADMIN_ROLES,
+  ...TENANT_STAFF_ROLES,
+] as const;

@@ -43,6 +43,12 @@ export class CreateVoucherDto {
   @IsString()
   description?: string;
 
+  @ApiPropertyOptional({ description: 'Cover image path' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  image?: string;
+
   @ApiProperty({
     description: 'Voucher type',
     enum: ['percentage', 'fixed_amount', 'free_item'],
@@ -131,6 +137,12 @@ export class UpdateVoucherDto {
   @IsString()
   description?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  image?: string | null;
+
   @ApiPropertyOptional({ enum: ['percentage', 'fixed_amount', 'free_item'] })
   @IsOptional()
   @IsEnum(['percentage', 'fixed_amount', 'free_item'])
@@ -202,6 +214,9 @@ export class VoucherResponseDto {
 
   @ApiPropertyOptional()
   description?: string | null;
+
+  @ApiPropertyOptional()
+  image?: string | null;
 
   @ApiProperty({ enum: ['percentage', 'fixed_amount', 'free_item'] })
   type: VoucherType;

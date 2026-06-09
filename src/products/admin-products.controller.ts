@@ -28,6 +28,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
+import { TENANT_MENU_READ_ROLES } from '../auth/roles.constants';
 
 @ApiTags('products-admin')
 @Controller('admin/products')
@@ -57,6 +58,7 @@ export class AdminProductsController {
     }
 
     @Get()
+    @Roles(...TENANT_MENU_READ_ROLES)
     @ApiOperation({ summary: 'Get all products with pagination (Admin) - includes hidden and unavailable' })
     @ApiQuery({ name: 'page', required: false, description: 'Page number (default: 1)' })
     @ApiQuery({ name: 'limit', required: false, description: 'Number of products per page (default: 10)' })
@@ -151,6 +153,7 @@ export class AdminProductsController {
     }
 
     @Get('category/:categoryId')
+    @Roles(...TENANT_MENU_READ_ROLES)
     @ApiOperation({ summary: 'Get products by category (Admin)' })
     @ApiParam({ name: 'categoryId', description: 'Category ID' })
     async findByCategory(
@@ -161,6 +164,7 @@ export class AdminProductsController {
     }
 
     @Get('search')
+    @Roles(...TENANT_MENU_READ_ROLES)
     @ApiOperation({ summary: 'Search products (Admin)' })
     @ApiQuery({ name: 'q', description: 'Search query' })
     async search(
@@ -174,6 +178,7 @@ export class AdminProductsController {
     }
 
     @Get('popular')
+    @Roles(...TENANT_MENU_READ_ROLES)
     @ApiOperation({ summary: 'Get popular products (Admin)' })
     @ApiQuery({ name: 'limit', required: false, description: 'Number of products to return' })
     async getPopular(
@@ -185,6 +190,7 @@ export class AdminProductsController {
     }
 
     @Get('count/active')
+    @Roles(...TENANT_MENU_READ_ROLES)
     @ApiOperation({ summary: 'Get count of active products' })
     @ApiResponse({ status: 200, description: 'Returns count of active products' })
     async getActiveProductsCount(@RestaurantId() restaurantId: string) {
@@ -193,6 +199,7 @@ export class AdminProductsController {
     }
 
     @Get(':id')
+    @Roles(...TENANT_MENU_READ_ROLES)
     @ApiOperation({ summary: 'Get product by ID (Admin)' })
     @ApiParam({ name: 'id', description: 'Product ID' })
     async findOne(

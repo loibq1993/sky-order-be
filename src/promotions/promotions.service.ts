@@ -87,6 +87,7 @@ export class PromotionsService {
       ALTER TABLE product_promotions ADD COLUMN IF NOT EXISTS "buyQuantity" integer;
       ALTER TABLE product_promotions ADD COLUMN IF NOT EXISTS "getQuantity" integer;
       ALTER TABLE product_promotions ADD COLUMN IF NOT EXISTS "rewardProductId" uuid;
+      ALTER TABLE product_promotions ADD COLUMN IF NOT EXISTS image character varying(500);
     `);
   }
 
@@ -206,6 +207,7 @@ export class PromotionsService {
     return {
       id: promo.id,
       name: promo.name,
+      image: promo.image,
       scope: promo.scope,
       promotionType,
       timeStart: promo.timeStart,
@@ -440,6 +442,7 @@ export class PromotionsService {
 
       const promo = repo.create({
         name: dto.name,
+        image: dto.image?.trim() || null,
         scope: dto.scope,
         promotionType,
         timeStart: promotionType === 'happy_hour' ? dto.timeStart ?? null : null,
@@ -505,6 +508,7 @@ export class PromotionsService {
       this.validatePromotionDto(dto, promo);
 
       if (dto.name !== undefined) promo.name = dto.name;
+      if (dto.image !== undefined) promo.image = dto.image?.trim() || null;
       if (dto.scope !== undefined) promo.scope = dto.scope;
       if (dto.promotionType !== undefined) promo.promotionType = dto.promotionType;
       if (dto.timeStart !== undefined) promo.timeStart = dto.timeStart;

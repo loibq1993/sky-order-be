@@ -531,7 +531,7 @@ export class OrdersService {
         .createQueryBuilder('order')
         .select('SUM(order.total)', 'total')
         .where('order.deletedAt IS NULL')
-        .andWhere('order.status != :cancelled', { cancelled: OrderStatus.CANCELLED })
+        .andWhere('order.paymentStatus = :paid', { paid: 'paid' })
         .andWhere('order.createdAt >= :today', { today });
       const result = await qb.getRawOne();
       return Number(result?.total ?? 0);

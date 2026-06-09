@@ -28,6 +28,9 @@ export class TenantVoucher {
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  image: string | null;
+
   @Column({ type: 'varchar', length: 20, default: 'percentage' })
   type: VoucherType;
 

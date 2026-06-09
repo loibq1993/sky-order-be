@@ -19,6 +19,9 @@ export class TenantProductPromotion {
   @Column({ type: 'varchar', length: 200 })
   name: string;
 
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  image: string | null;
+
   @Column({ type: 'varchar', length: 20, default: 'product' })
   scope: PromotionScope;
 

@@ -27,6 +27,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
+import { TENANT_MENU_READ_ROLES } from '../auth/roles.constants';
 
 @ApiTags('admin-categories')
 @Controller('admin/categories')
@@ -51,6 +52,7 @@ export class AdminCategoriesController {
     }
 
     @Get()
+    @Roles(...TENANT_MENU_READ_ROLES)
     @ApiOperation({ summary: 'Get all categories' })
     @ApiResponse({
         status: 200,
@@ -62,6 +64,7 @@ export class AdminCategoriesController {
     }
 
     @Get(':id')
+    @Roles(...TENANT_MENU_READ_ROLES)
     @ApiOperation({ summary: 'Get category by ID' })
     @ApiParam({ name: 'id', description: 'Category ID' })
     @ApiResponse({
