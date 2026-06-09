@@ -63,11 +63,13 @@ async function bootstrap() {
   // Set global prefix for all routes
   app.setGlobalPrefix('api');
 
-  // Enable validation pipe (disable transform to avoid multipart issues)
+  // transform must be enabled so @Type/@ValidateNested preserve nested DTO fields (e.g. order items).
+  // Multipart upload DTOs only use simple fields (folder string) and work fine with transform.
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
     forbidNonWhitelisted: true,
-    transform: false, // Disable transform to avoid multipart/form-data parsing issues
+    transform: true,
+    transformOptions: { enableImplicitConversion: true },
   }));
 
   // Setup Swagger documentation

@@ -50,13 +50,16 @@ export function getTenantSepaySettings(tenant: Tenant): TenantSepaySettings {
   const settings = asRecord(tenant.settings);
   const sepay = asRecord(settings?.sepay);
   if (!sepay) return {};
+  const str = (v: unknown): string | undefined => {
+    if (typeof v !== 'string') return undefined;
+    const t = v.trim();
+    return t || undefined;
+  };
   return {
     enabled: sepay.enabled === true ? true : sepay.enabled === false ? false : undefined,
-    accountNumber:
-      typeof sepay.accountNumber === 'string' ? sepay.accountNumber.trim() : undefined,
-    bankCode: typeof sepay.bankCode === 'string' ? sepay.bankCode.trim().toUpperCase() : undefined,
-    orderCodePrefix:
-      typeof sepay.orderCodePrefix === 'string' ? sepay.orderCodePrefix.trim() : undefined,
+    accountNumber: str(sepay.accountNumber),
+    bankCode: str(sepay.bankCode)?.toUpperCase(),
+    orderCodePrefix: str(sepay.orderCodePrefix),
     webhookSecret:
       typeof sepay.webhookSecret === 'string' ? sepay.webhookSecret.trim() : undefined,
     pgEnabled: sepay.pgEnabled === true ? true : sepay.pgEnabled === false ? false : undefined,
@@ -177,10 +180,11 @@ export function toAdminSepaySettings(tenant: Tenant, apiPublicBase?: string): Ad
     return { enabled: false, active: false, vietqrEnabled: false, pgEnabled: false };
   }
   return {
-    enabled: vietqrActive || pgActive,
+    // `enabled` / `pgEnabled` = user toggle (persisted); `active` / `vietqrEnabled` = configured & ready
+    enabled: toggledOn,
     active: vietqrActive || pgActive,
     vietqrEnabled: vietqrActive,
-    pgEnabled: pgActive,
+    pgEnabled: s.pgEnabled === true,
     accountNumber: s.accountNumber,
     bankCode: s.bankCode,
     orderCodePrefix: s.orderCodePrefix,

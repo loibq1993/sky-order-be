@@ -36,10 +36,19 @@ export class AdminOrdersController {
     @ApiResponse({ status: 200, description: 'Returns number of orders for given statuses' })
     async getOrdersByStatus(
         @Query('statuses') statuses: string,
+        @Query('fromDate') fromDate?: string,
+        @Query('toDate') toDate?: string,
+        @Query('includeOpenUnpaid') includeOpenUnpaid?: string,
         @RestaurantId() restaurantId?: string
     ) {
         const statusArray = statuses.split(',') as OrderStatus[];
-        const count = await this.ordersService.getOrdersCountByStatuses(statusArray, restaurantId);
+        const count = await this.ordersService.getOrdersCountByStatuses(
+            statusArray,
+            restaurantId,
+            fromDate,
+            toDate,
+            includeOpenUnpaid === '1' || includeOpenUnpaid === 'true',
+        );
         return { count };
     }
 
@@ -65,13 +74,39 @@ export class AdminOrdersController {
     @Get('filter/status/multiple')
     @ApiOperation({ summary: 'Get orders by multiple statuses' })
     @ApiQuery({ name: 'statuses', description: 'Comma-separated list of order statuses' })
+    @ApiQuery({ name: 'fromDate', required: false, description: 'YYYY-MM-DD (VN timezone)' })
+    @ApiQuery({ name: 'toDate', required: false, description: 'YYYY-MM-DD (VN timezone)' })
+    @ApiQuery({ name: 'page', required: false })
+    @ApiQuery({ name: 'limit', required: false })
+    @ApiQuery({ name: 'orderNumber', required: false, description: 'Partial order number search' })
     @ApiResponse({ status: 200, description: 'Returns orders matching the specified statuses', type: [OrderResponseDto] })
     async getOrdersByMultipleStatuses(
-        @Query('statuses') statuses: string,
+        @Query('statuses') statuses?: string,
+        @Query('fromDate') fromDate?: string,
+        @Query('toDate') toDate?: string,
+        @Query('page') page?: string,
+        @Query('limit') limit?: string,
+        @Query('orderNumber') orderNumber?: string,
+        @Query('includeOpenUnpaid') includeOpenUnpaid?: string,
         @RestaurantId() restaurantId?: string
     ) {
-        const statusArray = statuses.split(',') as OrderStatus[];
-        return this.ordersService.getOrdersByMultipleStatuses(statusArray, restaurantId);
+        const statusArray = (statuses ?? '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean) as OrderStatus[];
+        const pageNum = page ? parseInt(page, 10) : undefined;
+        const limitNum = limit ? parseInt(limit, 10) : undefined;
+        return this.ordersService.searchOrders({
+            statuses: statusArray.length ? statusArray : undefined,
+            fromDate,
+            toDate,
+            page: pageNum,
+            limit: limitNum,
+            orderNumber,
+            includeOpenUnpaid:
+                includeOpenUnpaid === '1' || includeOpenUnpaid === 'true',
+            restaurantId,
+        });
     }
 
     @Patch(':id/status')

@@ -227,14 +227,39 @@ export function mergeTenantSettings(
       const prevSepay = asRecord(base.sepay) || {};
       const nextSepay: Record<string, unknown> = { ...prevSepay };
 
+      const sepayReadOnlyKeys = new Set([
+        'active',
+        'vietqrEnabled',
+        'hasWebhookSecret',
+        'webhookSecretPreview',
+        'webhookPublicBase',
+        'webhookUrl',
+        'hasPgSecretKey',
+        'pgSecretKeyPreview',
+        'pgIpnUrl',
+      ]);
+      const sepaySkipEmptyKeys = new Set([
+        'accountNumber',
+        'bankCode',
+        'orderCodePrefix',
+        'pgMerchantId',
+        'webhookSecret',
+        'pgSecretKey',
+      ]);
       for (const [sepayKey, sepayValue] of Object.entries(value as Record<string, unknown>)) {
+        if (sepayReadOnlyKeys.has(sepayKey)) {
+          continue;
+        }
         if (
-          (sepayKey === 'webhookSecret' || sepayKey === 'pgSecretKey') &&
+          sepaySkipEmptyKeys.has(sepayKey) &&
           (sepayValue === '' || sepayValue === undefined || sepayValue === null)
         ) {
           continue;
         }
         nextSepay[sepayKey] = sepayValue;
+      }
+      for (const k of sepayReadOnlyKeys) {
+        delete nextSepay[k];
       }
 
       base.sepay = nextSepay;

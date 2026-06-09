@@ -3,13 +3,14 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { IsNull, In } from 'typeorm';
+import { IsNull, In, Brackets } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { TenantOrder } from '../entities/tenant/tenant-order.entity';
 import { TenantOrderItem } from '../entities/tenant/tenant-order-item.entity';
 import { TenantProduct } from '../entities/tenant/tenant-product.entity';
 import { TenantTable } from '../entities/tenant/tenant-table.entity';
 import { TenantSchemaService } from '../tenant/tenant-schema.service';
+import { TenantService } from '../tenant/tenant.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { PromotionsService } from '../promotions/promotions.service';
@@ -24,20 +25,33 @@ import {
   PaymentMethod,
 } from './orders.dto';
 import { generateOrderNumber } from './order-number.util';
-import { EntityManager } from 'typeorm';
+import { isUnpaidOpenOrder } from './order-status.util';
+import {
+  getVietnamTodayDateString,
+  isValidIsoDate,
+  vietnamDayEndExclusive,
+  vietnamDayStart,
+} from './order-date.util';
+import { CLOSED_PAYMENT_STATUSES } from './order-status.util';
+import { EntityManager, SelectQueryBuilder } from 'typeorm';
 
-const ACTIVE_ORDER_STATUSES = [
-  OrderStatus.PENDING,
-  OrderStatus.CONFIRMED,
-  OrderStatus.PREPARING,
-  OrderStatus.READY,
-  OrderStatus.SERVED,
-];
+export interface OrderSearchOptions {
+  statuses?: OrderStatus[];
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  limit?: number;
+  orderNumber?: string;
+  /** Đơn hôm nay + đơn cũ vẫn chưa thanh toán (màn admin Đơn hàng). */
+  includeOpenUnpaid?: boolean;
+  restaurantId?: string;
+}
 
 @Injectable()
 export class OrdersService {
   constructor(
     private tenantSchemaService: TenantSchemaService,
+    private tenantService: TenantService,
     private notificationsService: NotificationsService,
     private vouchersService: VouchersService,
     private promotionsService: PromotionsService,
@@ -95,13 +109,14 @@ export class OrdersService {
           throw new BadRequestException('Table not found');
         }
         if (table) {
-          const activeOrder = await orderRepo.findOne({
-            where: {
-              tableId: table.id,
-              status: In(ACTIVE_ORDER_STATUSES),
-              deletedAt: IsNull(),
-            },
+          const candidates = await orderRepo.find({
+            where: { tableId: table.id, deletedAt: IsNull() },
+            order: { createdAt: 'DESC' },
+            take: 20,
           });
+          const activeOrder = candidates.find((o) =>
+            isUnpaidOpenOrder(o.status, o.paymentStatus),
+          );
           if (activeOrder) {
             throw new BadRequestException(
               `Table ${table.tableNumber} already has an active order (Order #${activeOrder.orderNumber})`,
@@ -114,6 +129,18 @@ export class OrdersService {
       const comboOrders = createOrderDto.combos ?? [];
       if (productItems.length === 0 && comboOrders.length === 0) {
         throw new BadRequestException('Order must include at least one item or combo');
+      }
+
+      if (
+        createOrderDto.orderType === OrderType.DINE_IN &&
+        !createOrderDto.tableId &&
+        (createOrderDto.tableNumber == null ||
+          !Number.isFinite(Number(createOrderDto.tableNumber)) ||
+          Number(createOrderDto.tableNumber) < 1)
+      ) {
+        throw new BadRequestException(
+          'Table number is required for dine-in orders. Open the menu via table QR or add ?table= to the URL.',
+        );
       }
 
       let totalAmount = 0;
@@ -329,13 +356,10 @@ export class OrdersService {
       if (!order) throw new NotFoundException(`Order with ID ${id} not found`);
 
       if (updateOrderDto.additionalItems && updateOrderDto.additionalItems.length > 0) {
-        const status = order.status;
-        if (
-          status === OrderStatus.CANCELLED ||
-          status === OrderStatus.COMPLETED ||
-          status === OrderStatus.DELIVERED
-        ) {
-          throw new BadRequestException(`Cannot add items to order with status: ${status}`);
+        if (!isUnpaidOpenOrder(order.status, order.paymentStatus)) {
+          throw new BadRequestException(
+            'Đơn đã thanh toán hoặc đã đóng — không thể thêm món. Vui lòng tạo đơn mới.',
+          );
         }
         let additionalTotal = 0;
         for (const item of updateOrderDto.additionalItems) {
@@ -422,14 +446,21 @@ export class OrdersService {
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
       await this.ensureOrderSchemaColumns(manager);
       const repo = manager.getRepository(TenantOrder);
-      const order = await repo.findOne({
-        where: {
-          tableId,
-          status: In(ACTIVE_ORDER_STATUSES),
-          deletedAt: IsNull(),
-        },
-        relations: ['orderItems'],
-      });
+      const orders = await repo
+        .createQueryBuilder('order')
+        .leftJoinAndSelect('order.orderItems', 'orderItems')
+        .where('order.tableId = :tableId', { tableId })
+        .andWhere('order.deletedAt IS NULL')
+        .andWhere('order.status NOT IN (:...closed)', {
+          closed: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
+        })
+        .andWhere(
+          '(order.paymentStatus IS NULL OR LOWER(order.paymentStatus) NOT IN (:...closedPay))',
+          { closedPay: [...CLOSED_PAYMENT_STATUSES] },
+        )
+        .orderBy('order.createdAt', 'DESC')
+        .getMany();
+      const order = orders.find((o) => isUnpaidOpenOrder(o.status, o.paymentStatus));
       return order ? this.mapToResponseDto(order) : null;
     });
   }
@@ -447,14 +478,18 @@ export class OrdersService {
         .leftJoinAndSelect('order.orderItems', 'orderItems')
         .where('order.tableId = :tableId', { tableId })
         .andWhere('order.deletedAt IS NULL')
-        .andWhere('order.status IN (:...statuses)', { statuses: ACTIVE_ORDER_STATUSES })
+        .andWhere('order.status NOT IN (:...closed)', {
+          closed: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
+        })
         .andWhere(
-          '(order.paymentStatus IS NULL OR order.paymentStatus != :paid)',
-          { paid: 'paid' },
+          '(order.paymentStatus IS NULL OR LOWER(order.paymentStatus) NOT IN (:...closedPay))',
+          { closedPay: [...CLOSED_PAYMENT_STATUSES] },
         )
         .orderBy('order.createdAt', 'DESC')
         .getMany();
-      return orders.map((o) => this.mapToResponseDto(o));
+      return orders
+        .filter((o) => isUnpaidOpenOrder(o.status, o.paymentStatus))
+        .map((o) => this.mapToResponseDto(o));
     });
   }
 
@@ -469,13 +504,20 @@ export class OrdersService {
   async getOrdersCountByStatuses(
     statuses: OrderStatus[],
     restaurantId?: string,
+    fromDate?: string,
+    toDate?: string,
+    includeOpenUnpaid?: boolean,
   ): Promise<number> {
     if (!restaurantId) return 0;
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
-      const repo = manager.getRepository(TenantOrder);
-      return repo.count({
-        where: { status: In(statuses), deletedAt: IsNull() },
-      });
+      await this.ensureOrderSchemaColumns(manager);
+      const qb = manager
+        .getRepository(TenantOrder)
+        .createQueryBuilder('order')
+        .where('order.deletedAt IS NULL')
+        .andWhere('order.status IN (:...statuses)', { statuses });
+      this.applyOrderDateFilters(qb, fromDate, toDate, includeOpenUnpaid);
+      return qb.getCount();
     });
   }
 
@@ -517,18 +559,158 @@ export class OrdersService {
   async getOrdersByMultipleStatuses(
     statuses: OrderStatus[],
     restaurantId?: string,
+    options?: Omit<OrderSearchOptions, 'statuses' | 'restaurantId'>,
   ): Promise<OrderResponseDto[]> {
+    return this.searchOrders({
+      statuses,
+      restaurantId,
+      ...options,
+    });
+  }
+
+  private applyOrderDateFilters(
+    qb: SelectQueryBuilder<TenantOrder>,
+    fromDate?: string,
+    toDate?: string,
+    includeOpenUnpaid?: boolean,
+  ): void {
+    const hasFrom = isValidIsoDate(fromDate);
+    const hasTo = isValidIsoDate(toDate);
+
+    if (includeOpenUnpaid && (hasFrom || hasTo)) {
+      qb.andWhere(
+        new Brackets((sub) => {
+          if (hasFrom && hasTo) {
+            sub.where(
+              'order.createdAt >= :fromStart AND order.createdAt < :toEnd',
+              {
+                fromStart: vietnamDayStart(fromDate!.trim()),
+                toEnd: vietnamDayEndExclusive(toDate!.trim()),
+              },
+            );
+          } else if (hasFrom) {
+            sub.where('order.createdAt >= :fromStart', {
+              fromStart: vietnamDayStart(fromDate!.trim()),
+            });
+          } else if (hasTo) {
+            sub.where('order.createdAt < :toEnd', {
+              toEnd: vietnamDayEndExclusive(toDate!.trim()),
+            });
+          }
+          sub.orWhere(
+            `order.status NOT IN (:...closedStatuses)
+             AND (order.paymentStatus IS NULL OR LOWER(order.paymentStatus) NOT IN (:...openPayment))`,
+            {
+              closedStatuses: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
+              openPayment: [...CLOSED_PAYMENT_STATUSES],
+            },
+          );
+        }),
+      );
+      return;
+    }
+
+    if (hasFrom) {
+      qb.andWhere('order.createdAt >= :fromStart', {
+        fromStart: vietnamDayStart(fromDate!.trim()),
+      });
+    }
+    if (hasTo) {
+      qb.andWhere('order.createdAt < :toEnd', {
+        toEnd: vietnamDayEndExclusive(toDate!.trim()),
+      });
+    }
+  }
+
+  async searchOrders(options: OrderSearchOptions): Promise<OrderResponseDto[]> {
+    const {
+      restaurantId,
+      statuses,
+      fromDate,
+      toDate,
+      page,
+      limit,
+      orderNumber,
+      includeOpenUnpaid,
+    } = options;
     if (!restaurantId) return [];
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
       await this.ensureOrderSchemaColumns(manager);
-      const repo = manager.getRepository(TenantOrder);
-      const orders = await repo.find({
-        where: { status: In(statuses), deletedAt: IsNull() },
-        relations: ['orderItems'],
-        order: { createdAt: 'DESC' },
-      });
+      const qb = manager
+        .getRepository(TenantOrder)
+        .createQueryBuilder('order')
+        .leftJoinAndSelect('order.orderItems', 'orderItems')
+        .where('order.deletedAt IS NULL');
+
+      if (statuses?.length) {
+        qb.andWhere('order.status IN (:...statuses)', { statuses });
+      }
+      this.applyOrderDateFilters(qb, fromDate, toDate, includeOpenUnpaid);
+
+      const q = orderNumber?.trim();
+      if (q) {
+        qb.andWhere('order.orderNumber ILIKE :orderNumberQ', {
+          orderNumberQ: `%${q}%`,
+        });
+      }
+
+      qb.orderBy('order.createdAt', 'DESC');
+
+      if (limit && limit > 0) {
+        const pageNum = page && page > 0 ? page : 1;
+        qb.skip((pageNum - 1) * limit).take(limit);
+      }
+
+      const orders = await qb.getMany();
       return orders.map((o) => this.mapToResponseDto(o));
     });
+  }
+
+  /** Today (VN) — used by admin live orders screen. */
+  getTodayDateString(): string {
+    return getVietnamTodayDateString();
+  }
+
+  /**
+   * Đóng ca: đơn tạo trước hôm nay (VN) còn mở & chưa thanh toán
+   * → status completed, paymentStatus cancelled (không ghi nhận doanh thu).
+   */
+  async autoClosePreviousDayUnpaidOrders(): Promise<{ closedCount: number }> {
+    const cutoff = vietnamDayStart(getVietnamTodayDateString());
+    const tenants = await this.tenantService.listActiveTenants();
+    let closedCount = 0;
+
+    for (const tenant of tenants) {
+      const n = await this.tenantSchemaService.runInTenant(tenant.id, async (manager) => {
+        await this.ensureOrderSchemaColumns(manager);
+        const repo = manager.getRepository(TenantOrder);
+        const candidates = await repo
+          .createQueryBuilder('order')
+          .where('order.deletedAt IS NULL')
+          .andWhere('order.createdAt < :cutoff', { cutoff })
+          .andWhere('order.status NOT IN (:...closed)', {
+            closed: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
+          })
+          .getMany();
+
+        const stale = candidates.filter((o) =>
+          isUnpaidOpenOrder(o.status, o.paymentStatus),
+        );
+        if (stale.length === 0) return 0;
+
+        const now = new Date();
+        for (const order of stale) {
+          order.status = OrderStatus.COMPLETED;
+          order.paymentStatus = 'cancelled';
+          order.updatedAt = now;
+        }
+        await repo.save(stale);
+        return stale.length;
+      });
+      closedCount += n;
+    }
+
+    return { closedCount };
   }
 
   private paymentMethodLabel(method: string): string {
@@ -560,10 +742,12 @@ export class OrdersService {
       const wasCompleted = order.status === OrderStatus.COMPLETED;
       order.status = status as string;
 
-      if (status === OrderStatus.COMPLETED && order.paymentStatus !== 'paid') {
-        order.paymentStatus = 'paid';
-        order.paymentMethod = paymentMethod || PaymentMethod.CASH;
-        order.paidAt = new Date();
+      if (status === OrderStatus.COMPLETED) {
+        if (order.paymentStatus !== 'paid') {
+          order.paymentStatus = 'paid';
+          order.paymentMethod = paymentMethod || PaymentMethod.CASH;
+          order.paidAt = new Date();
+        }
       }
 
       await repo.save(order);

@@ -290,7 +290,7 @@ export class PromotionsService {
   ): Promise<OrderLineForPromotion[]> {
     const activePromos = await this.getActivePromotions(manager);
     const bxgyPromos = activePromos.filter((p) => p.promotionType === 'buy_x_get_y');
-    if (!bxgyPromos.length) return orderLines;
+    if (!bxgyPromos.length) return [...orderLines];
 
     const productRepo = manager.getRepository(TenantProduct);
     const paidQtyByProduct = new Map<string, number>();
