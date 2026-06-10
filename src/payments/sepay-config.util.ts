@@ -1,4 +1,5 @@
 import { Tenant } from '../entities/tenant.entity';
+import { normalizeSepayBankCode } from './sepay-bank-codes';
 import { maskSecret, resolveTenantWebhookPublicBase } from './stripe-config.util';
 
 export interface TenantSepaySettings {
@@ -58,8 +59,8 @@ export function getTenantSepaySettings(tenant: Tenant): TenantSepaySettings {
   return {
     enabled: sepay.enabled === true ? true : sepay.enabled === false ? false : undefined,
     accountNumber: str(sepay.accountNumber),
-    bankCode: str(sepay.bankCode)?.toUpperCase(),
-    orderCodePrefix: str(sepay.orderCodePrefix),
+    bankCode: normalizeSepayBankCode(str(sepay.bankCode)),
+    orderCodePrefix: resolveSepayOrderCodePrefix(str(sepay.orderCodePrefix)),
     webhookSecret:
       typeof sepay.webhookSecret === 'string' ? sepay.webhookSecret.trim() : undefined,
     pgEnabled: sepay.pgEnabled === true ? true : sepay.pgEnabled === false ? false : undefined,
@@ -76,10 +77,18 @@ export function getTenantSepaySettings(tenant: Tenant): TenantSepaySettings {
 
 export function buildSepayTransferContent(orderNumber: string, prefix?: string): string {
   const code = orderNumber.trim();
-  const p = prefix?.trim();
+  const p = resolveSepayOrderCodePrefix(prefix);
   if (!p) return code;
   if (p.endsWith('_') || p.endsWith('-')) return `${p}${code}`;
   return `${p}_${code}`;
+}
+
+/** Bỏ prefix demo/legacy; nội dung CK mặc định chỉ dùng mã đơn (CF_…). */
+export function resolveSepayOrderCodePrefix(prefix?: string): string | undefined {
+  const p = prefix?.trim();
+  if (!p) return undefined;
+  if (p.toUpperCase().replace(/[_-]+$/, '') === 'DEMO') return undefined;
+  return p;
 }
 
 export function normalizeTransferContent(value: string): string {
@@ -139,7 +148,7 @@ export function buildSepayQrImageUrl(params: {
 }): string {
   const url = new URL(SEPAY_QR_BASE);
   url.searchParams.set('acc', params.accountNumber);
-  url.searchParams.set('bank', params.bankCode);
+  url.searchParams.set('bank', normalizeSepayBankCode(params.bankCode) || params.bankCode);
   url.searchParams.set('amount', String(Math.round(params.amount)));
   url.searchParams.set('des', params.transferContent);
   return url.toString();
