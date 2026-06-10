@@ -7,7 +7,6 @@ export interface TenantSepaySettings {
   /** VietQR trực tiếp (qr.sepay.vn + webhook ngân hàng). */
   accountNumber?: string;
   bankCode?: string;
-  orderCodePrefix?: string;
   /** SePay Dashboard → Webhook tiền vào → HMAC secret. */
   webhookSecret?: string;
   /** Cổng thanh toán SePay (PG) — merchant checkout hosted. */
@@ -27,7 +26,6 @@ export interface AdminSepaySettings extends PublicSepaySettings {
   active: boolean;
   accountNumber?: string;
   bankCode?: string;
-  orderCodePrefix?: string;
   hasWebhookSecret?: boolean;
   webhookSecretPreview?: string;
   webhookPublicBase?: string;
@@ -60,7 +58,6 @@ export function getTenantSepaySettings(tenant: Tenant): TenantSepaySettings {
     enabled: sepay.enabled === true ? true : sepay.enabled === false ? false : undefined,
     accountNumber: str(sepay.accountNumber),
     bankCode: normalizeSepayBankCode(str(sepay.bankCode)),
-    orderCodePrefix: resolveSepayOrderCodePrefix(str(sepay.orderCodePrefix)),
     webhookSecret:
       typeof sepay.webhookSecret === 'string' ? sepay.webhookSecret.trim() : undefined,
     pgEnabled: sepay.pgEnabled === true ? true : sepay.pgEnabled === false ? false : undefined,
@@ -75,37 +72,64 @@ export function getTenantSepaySettings(tenant: Tenant): TenantSepaySettings {
   };
 }
 
-export function buildSepayTransferContent(orderNumber: string, prefix?: string): string {
-  const code = orderNumber.trim();
-  const p = resolveSepayOrderCodePrefix(prefix);
-  if (!p) return code;
-  if (p.endsWith('_') || p.endsWith('-')) return `${p}${code}`;
-  return `${p}_${code}`;
-}
-
-/** Bỏ prefix demo/legacy; nội dung CK mặc định chỉ dùng mã đơn (CF_…). */
-export function resolveSepayOrderCodePrefix(prefix?: string): string | undefined {
-  const p = prefix?.trim();
-  if (!p) return undefined;
-  if (p.toUpperCase().replace(/[_-]+$/, '') === 'DEMO') return undefined;
-  return p;
+/** Nội dung CK VietQR = mã đơn (đã gồm prefix cấu hình admin). */
+export function buildSepayTransferContent(orderNumber: string): string {
+  return orderNumber.trim();
 }
 
 export function normalizeTransferContent(value: string): string {
   return value.trim().toUpperCase();
 }
 
+/** Lấy phần {timestamp}-{seq} từ nội dung CK (ngân hàng có thể bỏ `_`, lặp CF). */
+export function extractOrderNumberCore(value: string): string | null {
+  const normalized = value.trim().toUpperCase().replace(/_/g, '');
+  const match = normalized.match(/(\d{10,}-\d{3})/);
+  return match ? match[1] : null;
+}
+
+function compactAlphanumeric(value: string): string {
+  return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
 /** Match webhook content to order number (with optional prefix). */
 export function transferContentMatchesOrder(
   webhookContent: string,
   orderNumber: string,
-  prefix?: string,
 ): boolean {
-  const normalized = normalizeTransferContent(webhookContent);
-  const expected = normalizeTransferContent(buildSepayTransferContent(orderNumber, prefix));
+  const raw = webhookContent.trim();
+  if (!raw) return false;
+
+  const normalized = normalizeTransferContent(raw);
+  const expected = normalizeTransferContent(buildSepayTransferContent(orderNumber));
   if (normalized === expected) return true;
   if (normalized.includes(expected) || expected.includes(normalized)) return true;
+
+  const coreContent = extractOrderNumberCore(raw);
+  const coreOrder = extractOrderNumberCore(orderNumber);
+  if (coreContent && coreOrder && coreContent === coreOrder) return true;
+
+  const compactContent = compactAlphanumeric(raw);
+  const compactOrder = compactAlphanumeric(orderNumber);
+  if (compactContent.length >= 8 && compactOrder.startsWith(compactContent)) return true;
+  if (compactOrder.length >= 8 && compactContent.startsWith(compactOrder)) return true;
+
   return normalized.endsWith(orderNumber.trim().toUpperCase());
+}
+
+/** Gom các field SePay gửi để đối chiếu mã đơn (content / description / code). */
+export function collectSepayMatchTexts(body: Record<string, unknown>): string[] {
+  const texts = ['content', 'description', 'code']
+    .map((key) => String(body[key] ?? '').trim())
+    .filter(Boolean);
+  return [...new Set(texts)];
+}
+
+export function orderMatchesSepayWebhook(
+  orderNumber: string,
+  matchTexts: string[],
+): boolean {
+  return matchTexts.some((text) => transferContentMatchesOrder(text, orderNumber));
 }
 
 export function isSepayVietQrConfigured(tenant: Tenant): boolean {
@@ -196,7 +220,6 @@ export function toAdminSepaySettings(tenant: Tenant, apiPublicBase?: string): Ad
     pgEnabled: s.pgEnabled === true,
     accountNumber: s.accountNumber,
     bankCode: s.bankCode,
-    orderCodePrefix: s.orderCodePrefix,
     hasWebhookSecret: Boolean(s.webhookSecret),
     webhookSecretPreview: maskSecret(s.webhookSecret),
     webhookPublicBase,

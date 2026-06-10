@@ -25,6 +25,7 @@ import {
   PaymentMethod,
 } from './orders.dto';
 import { generateOrderNumber } from './order-number.util';
+import { getTenantOrderNumberPrefix } from './order-settings.util';
 import { isUnpaidOpenOrder } from './order-status.util';
 import {
   getVietnamTodayDateString,
@@ -87,6 +88,9 @@ export class OrdersService {
   }
 
   async createOrder(createOrderDto: CreateOrderDto, restaurantId: string): Promise<OrderResponseDto> {
+    const tenant = await this.tenantService.findById(restaurantId);
+    const orderNumberPrefix = getTenantOrderNumberPrefix(tenant);
+
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
       await this.ensureOrderSchemaColumns(manager);
       const tableRepo = manager.getRepository(TenantTable);
@@ -257,7 +261,7 @@ export class OrdersService {
       const orderTotal = voucherApplication?.finalTotal ?? totalAmount;
 
       const order = orderRepo.create({
-        orderNumber: generateOrderNumber(),
+        orderNumber: generateOrderNumber(orderNumberPrefix),
         status: OrderStatus.PENDING,
         orderType: createOrderDto.orderType as string,
         tableId: table?.id ?? null,

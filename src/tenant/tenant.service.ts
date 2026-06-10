@@ -178,6 +178,7 @@ export class TenantService {
       isActive: true,
       settings: dto.settings ?? {
         homeTheme: 'default',
+        orders: { orderNumberPrefix: 'CF_' },
         stripe: { enabled: false },
         sepay: { enabled: false },
       },

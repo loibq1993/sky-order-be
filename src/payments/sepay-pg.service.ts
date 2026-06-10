@@ -46,10 +46,7 @@ export class SepayPgService {
     }
 
     const settings = getTenantSepaySettings(params.tenant);
-    const invoiceNumber = buildSepayTransferContent(
-      params.orderNumber,
-      settings.orderCodePrefix,
-    );
+    const invoiceNumber = buildSepayTransferContent(params.orderNumber);
     const origin = params.frontendOrigin.replace(/\/$/, '');
     const qs = new URLSearchParams({
       orderId: params.orderId,

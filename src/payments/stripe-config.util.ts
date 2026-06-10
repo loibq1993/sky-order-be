@@ -223,6 +223,12 @@ export function mergeTenantSettings(
       continue;
     }
 
+    if (key === 'orders' && value && typeof value === 'object' && !Array.isArray(value)) {
+      const prevOrders = asRecord(base.orders) || {};
+      base.orders = { ...prevOrders, ...(value as Record<string, unknown>) };
+      continue;
+    }
+
     if (key === 'sepay' && value && typeof value === 'object' && !Array.isArray(value)) {
       const prevSepay = asRecord(base.sepay) || {};
       const nextSepay: Record<string, unknown> = { ...prevSepay };
@@ -241,7 +247,6 @@ export function mergeTenantSettings(
       const sepaySkipEmptyKeys = new Set([
         'accountNumber',
         'bankCode',
-        'orderCodePrefix',
         'pgMerchantId',
         'webhookSecret',
         'pgSecretKey',

@@ -6,7 +6,7 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { EntityManager, IsNull } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
 import Stripe from 'stripe';
 import { TenantOrder } from '../entities/tenant/tenant-order.entity';
 import { TenantOrderItem } from '../entities/tenant/tenant-order-item.entity';
@@ -20,7 +20,10 @@ import { SepayPgService } from './sepay-pg.service';
 import { ResolvedStripeConfig, resolveTenantWebhookConfig, getTenantStripeSettings } from './stripe-config.util';
 import {
   buildSepayTransferContent,
+  collectSepayMatchTexts,
+  extractOrderNumberCore,
   getTenantSepaySettings,
+  orderMatchesSepayWebhook,
   transferContentMatchesOrder,
 } from './sepay-config.util';
 import {
@@ -561,8 +564,6 @@ export class PaymentsService {
     const txId = txPayload?.transaction_id != null ? String(txPayload.transaction_id) : '';
     const transferAmount = Number(orderPayload?.order_amount ?? txPayload?.transaction_amount);
 
-    const prefix = getTenantSepaySettings(tenant).orderCodePrefix;
-
     const matched = await this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
       await this.ensurePaymentColumns(manager);
       const orderRepo = manager.getRepository(TenantOrder);
@@ -573,7 +574,7 @@ export class PaymentsService {
       });
 
       const order = candidates.find((o) =>
-        transferContentMatchesOrder(invoiceNumber, o.orderNumber, prefix),
+        transferContentMatchesOrder(invoiceNumber, o.orderNumber),
       );
       if (!order) return null;
       if (order.paymentStatus === 'paid') {
@@ -615,6 +616,53 @@ export class PaymentsService {
         tableNumber: matched.order.tableNumber ?? null,
       });
     }
+  }
+
+  /** Tìm đơn chưa paid theo core mã đơn trong content/code (không chỉ 200 đơn gần nhất). */
+  private async findSepayWebhookOrderCandidates(
+    orderRepo: Repository<TenantOrder>,
+    matchTexts: string[],
+  ): Promise<TenantOrder[]> {
+    const cores = matchTexts
+      .map((text) => extractOrderNumberCore(text))
+      .filter((value): value is string => Boolean(value));
+
+    const seen = new Set<string>();
+    const results: TenantOrder[] = [];
+    const pushUnique = (rows: TenantOrder[]) => {
+      for (const row of rows) {
+        if (!seen.has(row.id)) {
+          seen.add(row.id);
+          results.push(row);
+        }
+      }
+    };
+
+    for (const core of cores) {
+      const digits = core.replace(/-/g, '');
+      const rows = await orderRepo
+        .createQueryBuilder('order')
+        .where('order.deletedAt IS NULL')
+        .andWhere('(order.paymentStatus IS NULL OR order.paymentStatus <> :paid)', { paid: 'paid' })
+        .andWhere(
+          `(REPLACE(order.orderNumber, '_', '') ILIKE :digits OR order.orderNumber ILIKE :fullCore)`,
+          { digits: `%${digits}%`, fullCore: `%${core}%` },
+        )
+        .orderBy('order.createdAt', 'DESC')
+        .take(20)
+        .getMany();
+      pushUnique(rows);
+    }
+
+    if (results.length > 0) {
+      return results;
+    }
+
+    return orderRepo.find({
+      where: { deletedAt: IsNull() },
+      order: { createdAt: 'DESC' },
+      take: 200,
+    });
   }
 
   async handleSepayWebhook(
@@ -662,39 +710,38 @@ export class PaymentsService {
       return;
     }
 
-    const content = String(body.content ?? '').trim();
     const transferAmount = Number(body.transferAmount);
     const sepayTxId = body.id != null ? String(body.id) : '';
     const referenceCode =
       typeof body.referenceCode === 'string' ? body.referenceCode : undefined;
+    const matchTexts = collectSepayMatchTexts(body);
 
-    if (!content || !Number.isFinite(transferAmount) || transferAmount <= 0) {
-      this.logger.warn('SePay webhook ignored: missing content or transferAmount');
+    if (matchTexts.length === 0 || !Number.isFinite(transferAmount) || transferAmount <= 0) {
+      this.logger.warn('SePay webhook ignored: missing content/description/code or transferAmount');
       return;
     }
-
-    const prefix = getTenantSepaySettings(tenant).orderCodePrefix;
 
     const matched = await this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
       await this.ensurePaymentColumns(manager);
       const orderRepo = manager.getRepository(TenantOrder);
-      const candidates = await orderRepo.find({
-        where: { deletedAt: IsNull() },
-        order: { createdAt: 'DESC' },
-        take: 200,
-      });
+
+      const candidates = await this.findSepayWebhookOrderCandidates(
+        orderRepo,
+        matchTexts,
+      );
 
       const order = candidates.find(
         (o) =>
           o.paymentStatus !== 'paid' &&
-          transferContentMatchesOrder(content, o.orderNumber, prefix),
+          orderMatchesSepayWebhook(o.orderNumber, matchTexts),
       );
       if (!order) return null;
 
       const expectedAmount = Math.round(Number(order.total));
-      if (transferAmount !== expectedAmount) {
+      const paidAmount = Math.round(transferAmount);
+      if (paidAmount < expectedAmount) {
         this.logger.warn(
-          `SePay webhook amount mismatch for order ${order.orderNumber}: got ${transferAmount}, expected ${expectedAmount}`,
+          `SePay webhook amount mismatch for order ${order.orderNumber}: got ${paidAmount}, expected >= ${expectedAmount}`,
         );
         return null;
       }
@@ -716,7 +763,7 @@ export class PaymentsService {
 
     if (!matched) {
       this.logger.warn(
-        `SePay webhook: no matching unpaid order for content="${content}" tenant=${restaurantId}`,
+        `SePay webhook: no matching unpaid order for texts=[${matchTexts.join(' | ')}] tenant=${restaurantId}`,
       );
       return;
     }

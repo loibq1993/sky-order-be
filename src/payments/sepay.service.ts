@@ -22,7 +22,7 @@ export class SepayService {
     if (!isSepayVietQrEnabledForTenant(tenant) || !settings.accountNumber || !settings.bankCode) {
       throw new ServiceUnavailableException('SePay VietQR is not configured for this restaurant');
     }
-    const transferContent = buildSepayTransferContent(orderNumber, settings.orderCodePrefix);
+    const transferContent = buildSepayTransferContent(orderNumber);
     const qrImageUrl = buildSepayQrImageUrl({
       accountNumber: settings.accountNumber,
       bankCode: settings.bankCode,

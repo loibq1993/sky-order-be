@@ -28,7 +28,9 @@ export function verifySepayWebhookSignature(options: {
   }
 
   if (Math.abs(Date.now() / 1000 - timestamp) > REPLAY_WINDOW_SEC) {
-    throw new UnauthorizedException('SePay webhook timestamp expired');
+    throw new UnauthorizedException(
+      `SePay webhook timestamp expired (drift > ${REPLAY_WINDOW_SEC}s). Sync server clock (NTP) or replay with a fresh timestamp.`,
+    );
   }
 
   const expected =
@@ -38,7 +40,9 @@ export function verifySepayWebhookSignature(options: {
   const sigBuf = Buffer.from(signature);
   const expBuf = Buffer.from(expected);
   if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-    throw new UnauthorizedException('Invalid SePay webhook signature');
+    throw new UnauthorizedException(
+      'Invalid SePay webhook signature. Copy the exact Secret Key from SePay Dashboard (Webhook → HMAC-SHA256) into Admin → Settings → SePay → Webhook secret, then Save.',
+    );
   }
 }
 
