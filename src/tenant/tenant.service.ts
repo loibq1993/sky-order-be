@@ -211,7 +211,6 @@ export class TenantService {
 
   async updateTenant(id: string, dto: Partial<CreateTenantDto>): Promise<Tenant> {
     const tenant = await this.findById(id);
-    const patch: Record<string, unknown> = { ...dto };
 
     const toHost = (value: string): string | null => {
       const t = value.trim();
@@ -220,21 +219,34 @@ export class TenantService {
       return n || t.replace(/^https?:\/\//i, '').split('/')[0]?.trim() || null;
     };
 
-    if (dto.customDomain !== undefined) {
-      patch.customDomain = toHost(dto.customDomain ?? '');
-    }
-
     if (dto.settings !== undefined) {
-      patch.settings = mergeTenantSettings(
+      const merged = mergeTenantSettings(
         tenant.settings as Record<string, unknown> | undefined,
         dto.settings as Record<string, unknown>,
       );
+      tenant.settings = JSON.parse(JSON.stringify(merged)) as Tenant['settings'];
     }
 
-    Object.assign(tenant, patch);
+    if (dto.name !== undefined) tenant.name = dto.name;
+    if (dto.nameKo !== undefined) tenant.nameKo = dto.nameKo;
+    if (dto.description !== undefined) tenant.description = dto.description;
+    if (dto.descriptionKo !== undefined) tenant.descriptionKo = dto.descriptionKo;
+    if (dto.logo !== undefined) tenant.logo = dto.logo;
+    if (dto.coverImage !== undefined) tenant.coverImage = dto.coverImage;
+    if (dto.address !== undefined) tenant.address = dto.address;
+    if (dto.phone !== undefined) tenant.phone = dto.phone;
+    if (dto.email !== undefined) tenant.email = dto.email;
+    if (dto.timezone !== undefined) tenant.timezone = dto.timezone;
+    if (dto.currency !== undefined) tenant.currency = dto.currency;
+    if (dto.language !== undefined) tenant.language = dto.language;
+    if (dto.businessHours !== undefined) tenant.businessHours = dto.businessHours;
+    if (dto.customDomain !== undefined) {
+      tenant.customDomain = toHost(dto.customDomain ?? '');
+    }
+
     const saved = await this.tenantRepository.save(tenant);
     this.corsAllowedOrigins.invalidateCache();
-    return saved;
+    return this.findById(id);
   }
 
   async deleteTenant(id: string): Promise<void> {

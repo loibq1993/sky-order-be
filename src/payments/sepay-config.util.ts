@@ -30,7 +30,8 @@ export interface AdminSepaySettings extends PublicSepaySettings {
   webhookSecretPreview?: string;
   webhookPublicBase?: string;
   webhookUrl?: string;
-  pgMerchantId?: string;
+  hasPgMerchantId?: boolean;
+  pgMerchantIdPreview?: string;
   hasPgSecretKey?: boolean;
   pgSecretKeyPreview?: string;
   pgEnv?: 'sandbox' | 'production';
@@ -209,24 +210,30 @@ export function toAdminSepaySettings(tenant: Tenant, apiPublicBase?: string): Ad
   const toggledOn = s.enabled === true;
   const vietqrActive = isSepayVietQrEnabledForTenant(tenant);
   const pgActive = isSepayPgEnabledForTenant(tenant);
+  const hasWebhook = Boolean(s.webhookSecret);
+  const hasPgMid = Boolean(s.pgMerchantId);
+  const hasPgSk = Boolean(s.pgSecretKey);
+  const keyFlags = {
+    hasWebhookSecret: hasWebhook,
+    webhookSecretPreview: hasWebhook ? maskSecret(s.webhookSecret) : undefined,
+    hasPgMerchantId: hasPgMid,
+    pgMerchantIdPreview: hasPgMid ? maskSecret(s.pgMerchantId) : undefined,
+    hasPgSecretKey: hasPgSk,
+    pgSecretKeyPreview: hasPgSk ? maskSecret(s.pgSecretKey) : undefined,
+  };
   if (!toggledOn) {
-    return { enabled: false, active: false, vietqrEnabled: false, pgEnabled: false };
+    return { enabled: false, active: false, vietqrEnabled: false, pgEnabled: false, ...keyFlags };
   }
   return {
-    // `enabled` / `pgEnabled` = user toggle (persisted); `active` / `vietqrEnabled` = configured & ready
     enabled: toggledOn,
     active: vietqrActive || pgActive,
     vietqrEnabled: vietqrActive,
     pgEnabled: s.pgEnabled === true,
     accountNumber: s.accountNumber,
     bankCode: s.bankCode,
-    hasWebhookSecret: Boolean(s.webhookSecret),
-    webhookSecretPreview: maskSecret(s.webhookSecret),
+    ...keyFlags,
     webhookPublicBase,
     webhookUrl: buildSepayWebhookUrl(tenant, fallback),
-    pgMerchantId: s.pgMerchantId,
-    hasPgSecretKey: Boolean(s.pgSecretKey),
-    pgSecretKeyPreview: maskSecret(s.pgSecretKey),
     pgEnv: s.pgEnv || 'sandbox',
     pgIpnUrl: buildSepayPgIpnUrl(tenant, fallback),
   };

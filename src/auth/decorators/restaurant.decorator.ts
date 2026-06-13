@@ -28,12 +28,7 @@ export const RestaurantId = createParamDecorator(
     const request = ctx.switchToHttp().getRequest();
     const user = request.user;
 
-    const fromJwt = user?.restaurantId != null ? normalizeRestaurantId(user.restaurantId) : undefined;
-    if (fromJwt) {
-      return fromJwt;
-    }
-
-    // Super admin: ?restaurantId= trên URL (chọn tenant) phải thắng domain (tránh nhầm tenant khi host trùng)
+    // Super admin: ?restaurantId= trên URL phải thắng JWT/domain (chọn tenant khác JWT)
     if (user?.role === 'super_admin') {
       const qSuper = normalizeRestaurantId(
         request.query?.restaurantId ?? request.query?.tenantId,
@@ -41,6 +36,11 @@ export const RestaurantId = createParamDecorator(
       if (qSuper) {
         return qSuper;
       }
+    }
+
+    const fromJwt = user?.restaurantId != null ? normalizeRestaurantId(user.restaurantId) : undefined;
+    if (fromJwt) {
+      return fromJwt;
     }
 
     let restaurantId: string | undefined = normalizeRestaurantId(

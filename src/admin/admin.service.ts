@@ -16,6 +16,7 @@ import { TenantService } from '../tenant/tenant.service';
 import { TenantSchemaService } from '../tenant/tenant-schema.service';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
+import { UpdateStripeSettingsDto } from './dto/update-stripe-settings.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ConfigService } from '@nestjs/config';
@@ -113,7 +114,32 @@ export class AdminService {
   }
 
   async updateRestaurant(id: string, dto: UpdateRestaurantDto) {
-    const tenant = await this.tenantService.updateTenant(id, dto);
+    await this.tenantService.updateTenant(id, dto);
+    const tenant = await this.tenantService.findById(id);
+    return this.sanitizeAdmin(tenant);
+  }
+
+  /** Lưu Stripe settings (sk/wh) vào tenant.settings.stripe — chỉ từ DB, không dùng .env. */
+  async updateStripeSettings(restaurantId: string, dto: UpdateStripeSettingsDto) {
+    const stripePayload: Record<string, unknown> = {};
+    if (dto.enabled !== undefined) stripePayload.enabled = dto.enabled;
+    if (dto.publishableKey !== undefined) {
+      const pk = dto.publishableKey.trim();
+      if (pk) stripePayload.publishableKey = pk;
+    }
+    if (dto.currency !== undefined) {
+      const cur = dto.currency.trim().toLowerCase();
+      if (cur) stripePayload.currency = cur;
+    }
+    const sk = dto.secretKey?.trim();
+    if (sk) stripePayload.secretKey = sk;
+    const wh = dto.webhookSecret?.trim();
+    if (wh) stripePayload.webhookSecret = wh;
+
+    await this.tenantService.updateTenant(restaurantId, {
+      settings: { stripe: stripePayload },
+    });
+    const tenant = await this.tenantService.findById(restaurantId);
     return this.sanitizeAdmin(tenant);
   }
 

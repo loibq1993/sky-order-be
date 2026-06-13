@@ -18,6 +18,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 import { AdminService } from './admin.service';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
+import { UpdateStripeSettingsDto } from './dto/update-stripe-settings.dto';
 
 @ApiTags('Admin')
 @Controller('admin/restaurant')
@@ -54,5 +55,18 @@ export class RestaurantSettingsController {
       throw new BadRequestException('Restaurant context is required');
     }
     return this.adminService.updateRestaurant(restaurantId, updateRestaurantDto);
+  }
+
+  @Put('stripe-settings')
+  @ApiOperation({ summary: 'Update Stripe settings (secret/webhook keys → DB only)' })
+  @ApiResponse({ status: 200, description: 'Stripe settings saved' })
+  async updateStripeSettings(
+    @RestaurantId() restaurantId: string | undefined,
+    @Body() dto: UpdateStripeSettingsDto,
+  ) {
+    if (!restaurantId) {
+      throw new BadRequestException('Restaurant context is required');
+    }
+    return this.adminService.updateStripeSettings(restaurantId, dto);
   }
 }

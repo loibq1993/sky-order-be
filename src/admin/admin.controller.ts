@@ -21,6 +21,7 @@ import {
 import { AdminService } from './admin.service';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
+import { UpdateStripeSettingsDto } from './dto/update-stripe-settings.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -110,6 +111,15 @@ export class AdminController {
     @Body() updateRestaurantDto: UpdateRestaurantDto,
   ) {
     return this.adminService.updateRestaurant(id, updateRestaurantDto);
+  }
+
+  @Put('restaurants/:id/stripe-settings')
+  @ApiOperation({ summary: 'Update Stripe settings for restaurant (super admin)' })
+  async updateRestaurantStripeSettings(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateStripeSettingsDto,
+  ) {
+    return this.adminService.updateStripeSettings(id, dto);
   }
 
   @Delete('restaurants/:id')
