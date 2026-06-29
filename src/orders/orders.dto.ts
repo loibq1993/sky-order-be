@@ -528,4 +528,15 @@ export class ExcludeStatusFilterDto {
     @IsArray()
     @IsEnum(OrderStatus, { each: true })
     excludedStatuses: OrderStatus[];
-} 
+}
+
+export class ApplyVoucherDto {
+    @ApiProperty({
+        description: 'Voucher code to apply before payment',
+        example: 'VC-AB12CD34',
+    })
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(50)
+    voucherCode: string;
+}

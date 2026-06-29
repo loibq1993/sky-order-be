@@ -19,7 +19,7 @@ import {
     ApiBody
 } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
-import { CreateOrderDto, UpdateOrderDto, OrderResponseDto } from './orders.dto';
+import { ApplyVoucherDto, CreateOrderDto, UpdateOrderDto, OrderResponseDto } from './orders.dto';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 
@@ -102,5 +102,18 @@ export class ClientOrdersController {
         @RestaurantId() restaurantId: string,
     ): Promise<OrderResponseDto> {
         return this.ordersService.updateOrder(id, updateOrderDto, restaurantId);
+    }
+
+    @Post(':id/apply-voucher')
+    @ApiOperation({ summary: 'Apply voucher to unpaid order before payment (Client)' })
+    @ApiParam({ name: 'id', description: 'Order ID' })
+    @ApiBody({ type: ApplyVoucherDto })
+    @ApiResponse({ status: 200, description: 'Voucher applied', type: OrderResponseDto })
+    async applyVoucher(
+        @Param('id') id: string,
+        @Body() dto: ApplyVoucherDto,
+        @RestaurantId() restaurantId: string,
+    ): Promise<OrderResponseDto> {
+        return this.ordersService.applyVoucherToOrder(id, dto.voucherCode, restaurantId);
     }
 } 

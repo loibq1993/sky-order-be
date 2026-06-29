@@ -346,6 +346,86 @@ export class OrdersService {
     });
   }
 
+  async applyVoucherToOrder(
+    id: string,
+    voucherCode: string,
+    restaurantId: string,
+  ): Promise<OrderResponseDto> {
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensureOrderSchemaColumns(manager);
+      const orderRepo = manager.getRepository(TenantOrder);
+      const orderItemRepo = manager.getRepository(TenantOrderItem);
+      const order = await orderRepo.findOne({ where: { id }, relations: ['orderItems'] });
+      if (!order) throw new NotFoundException(`Order with ID ${id} not found`);
+
+      if (!isUnpaidOpenOrder(order.status, order.paymentStatus)) {
+        throw new BadRequestException(
+          'Đơn đã thanh toán hoặc đã đóng — không thể áp dụng voucher.',
+        );
+      }
+      if (order.voucherCode) {
+        throw new BadRequestException('Đơn đã áp dụng voucher.');
+      }
+
+      const code = voucherCode.trim();
+      if (!code) {
+        throw new BadRequestException('Vui lòng nhập mã voucher');
+      }
+
+      const cartItems = (order.orderItems || [])
+        .filter((item) => Number(item.unitPrice) > 0)
+        .map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: Number(item.unitPrice),
+        }));
+
+      if (cartItems.length === 0) {
+        throw new BadRequestException('Đơn không có món để áp dụng voucher');
+      }
+
+      const voucherApplication = await this.vouchersService.applyForOrder(
+        manager,
+        code,
+        cartItems,
+      );
+
+      if (voucherApplication.freeItem) {
+        const alreadyInOrder = (order.orderItems || []).some(
+          (i) => i.productId === voucherApplication.freeItem!.productId,
+        );
+        if (!alreadyInOrder) {
+          const freeItem = orderItemRepo.create({
+            orderId: id,
+            productId: voucherApplication.freeItem.productId,
+            productName: `[Tặng] ${voucherApplication.freeItem.productName}`,
+            quantity: voucherApplication.freeItem.quantity,
+            unitPrice: 0,
+            originalUnitPrice: 0,
+            promotionId: null,
+            promotionDiscount: 0,
+            totalPrice: 0,
+            specialInstructions: null,
+            comboId: null,
+          });
+          await orderItemRepo.save(freeItem);
+        }
+      }
+
+      order.voucherId = voucherApplication.voucher.id;
+      order.voucherCode = voucherApplication.voucher.code;
+      order.voucherDiscount = voucherApplication.discountAmount;
+      order.total = voucherApplication.finalTotal;
+      await orderRepo.save(order);
+
+      await this.vouchersService.incrementUsage(manager, voucherApplication.voucher.id);
+
+      const updated = await orderRepo.findOne({ where: { id }, relations: ['orderItems'] });
+      if (!updated) throw new NotFoundException('Order not found after applying voucher');
+      return this.mapToResponseDto(updated);
+    });
+  }
+
   async updateOrder(
     id: string,
     updateOrderDto: UpdateOrderDto,
