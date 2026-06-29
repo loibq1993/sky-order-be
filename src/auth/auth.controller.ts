@@ -44,7 +44,10 @@ export class AuthController {
   @ApiOperation({ summary: 'Register new user' })
   @ApiResponse({ status: 201, description: 'User registered successfully' })
   @ApiResponse({ status: 400, description: 'Bad request' })
-  async register(@Body() registerDto: RegisterDto) {
+  async register(@Body() registerDto: RegisterDto, @Request() req) {
+    if (!registerDto.restaurantId) {
+      registerDto.restaurantId = (req as any).restaurantIdFromDomain;
+    }
     return this.authService.register(registerDto);
   }
 

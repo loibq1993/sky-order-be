@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { IsNull, In, Brackets } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -9,6 +10,7 @@ import { TenantOrder } from '../entities/tenant/tenant-order.entity';
 import { TenantOrderItem } from '../entities/tenant/tenant-order-item.entity';
 import { TenantProduct } from '../entities/tenant/tenant-product.entity';
 import { TenantTable } from '../entities/tenant/tenant-table.entity';
+import { TenantUser } from '../entities/tenant/tenant-user.entity';
 import { TenantSchemaService } from '../tenant/tenant-schema.service';
 import { TenantService } from '../tenant/tenant.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -48,6 +50,11 @@ export interface OrderSearchOptions {
   restaurantId?: string;
 }
 
+export interface OrderActingUser {
+  userId: string;
+  role: string;
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -79,15 +86,26 @@ export class OrdersService {
     `);
   }
 
+  private async ensureCustomerUserIdColumn(manager: EntityManager): Promise<void> {
+    await manager.query(`
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerUserId" uuid;
+    `);
+  }
+
   /** Backfill columns on tenant schemas created before payment/voucher migrations. */
   private async ensureOrderSchemaColumns(manager: EntityManager): Promise<void> {
     await this.ensureOrderVoucherColumns(manager);
     await this.ensurePaymentColumns(manager);
+    await this.ensureCustomerUserIdColumn(manager);
     await this.promotionsService.ensureOrderItemPromotionColumns(manager);
     await this.combosService.ensureOrderItemComboIdColumn(manager);
   }
 
-  async createOrder(createOrderDto: CreateOrderDto, restaurantId: string): Promise<OrderResponseDto> {
+  async createOrder(
+    createOrderDto: CreateOrderDto,
+    restaurantId: string,
+    actingUser?: OrderActingUser,
+  ): Promise<OrderResponseDto> {
     const tenant = await this.tenantService.findById(restaurantId);
     const orderNumberPrefix = getTenantOrderNumberPrefix(tenant);
 
@@ -260,14 +278,38 @@ export class OrdersService {
       const voucherDiscount = voucherApplication?.discountAmount ?? 0;
       const orderTotal = voucherApplication?.finalTotal ?? totalAmount;
 
+      let customerUserId: string | null = null;
+      let customerName = createOrderDto.customerName || '';
+      let customerPhone = createOrderDto.customerPhone ?? null;
+
+      if (actingUser?.role === 'customer') {
+        customerUserId = actingUser.userId;
+        const userRepo = manager.getRepository(TenantUser);
+        const customer = await userRepo.findOne({
+          where: { id: actingUser.userId, isActive: true },
+        });
+        if (customer) {
+          if (!customerName) {
+            const fullName = [customer.firstName, customer.lastName]
+              .filter(Boolean)
+              .join(' ')
+              .trim();
+            customerName = fullName || customer.username;
+          }
+          if (!customerPhone) {
+            customerPhone = customer.phone ?? null;
+          }
+        }
+      }
+
       const order = orderRepo.create({
         orderNumber: generateOrderNumber(orderNumberPrefix),
         status: OrderStatus.PENDING,
         orderType: createOrderDto.orderType as string,
         tableId: table?.id ?? null,
         tableNumber: table?.tableNumber ?? null,
-        customerName: createOrderDto.customerName || '',
-        customerPhone: createOrderDto.customerPhone ?? null,
+        customerName,
+        customerPhone,
         customerAddress: createOrderDto.customerAddress ?? null,
         notes: createOrderDto.notes ?? null,
         subtotal,
@@ -277,6 +319,7 @@ export class OrdersService {
         voucherId: voucherApplication?.voucher.id ?? null,
         voucherCode: voucherApplication?.voucher.code ?? null,
         voucherDiscount,
+        customerUserId,
       });
       const savedOrder = await orderRepo.save(order);
 
@@ -350,6 +393,7 @@ export class OrdersService {
     id: string,
     voucherCode: string,
     restaurantId: string,
+    actingUser?: OrderActingUser,
   ): Promise<OrderResponseDto> {
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
       await this.ensureOrderSchemaColumns(manager);
@@ -416,6 +460,7 @@ export class OrdersService {
       order.voucherCode = voucherApplication.voucher.code;
       order.voucherDiscount = voucherApplication.discountAmount;
       order.total = voucherApplication.finalTotal;
+      await this.linkCustomerToOrderIfNeeded(manager, order, actingUser);
       await orderRepo.save(order);
 
       await this.vouchersService.incrementUsage(manager, voucherApplication.voucher.id);
@@ -430,6 +475,7 @@ export class OrdersService {
     id: string,
     updateOrderDto: UpdateOrderDto,
     restaurantId: string,
+    actingUser?: OrderActingUser,
   ): Promise<OrderResponseDto> {
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
       await this.ensureOrderSchemaColumns(manager);
@@ -438,6 +484,8 @@ export class OrdersService {
       const productRepo = manager.getRepository(TenantProduct);
       const order = await orderRepo.findOne({ where: { id }, relations: ['orderItems'] });
       if (!order) throw new NotFoundException(`Order with ID ${id} not found`);
+
+      await this.linkCustomerToOrderIfNeeded(manager, order, actingUser);
 
       if (updateOrderDto.additionalItems && updateOrderDto.additionalItems.length > 0) {
         if (!isUnpaidOpenOrder(order.status, order.paymentStatus)) {
@@ -512,6 +560,7 @@ export class OrdersService {
       orderToSave.notes = order.notes;
       orderToSave.subtotal = order.subtotal;
       orderToSave.total = order.total;
+      orderToSave.customerUserId = order.customerUserId;
       orderToSave.estimatedDeliveryTime = order.estimatedDeliveryTime;
       orderToSave.actualDeliveryTime = order.actualDeliveryTime;
       await orderRepo.save(orderToSave);
@@ -852,6 +901,50 @@ export class OrdersService {
     });
   }
 
+  async getCustomerOrderHistory(
+    customerUserId: string,
+    restaurantId: string,
+    limit = 50,
+  ): Promise<OrderResponseDto[]> {
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensureOrderSchemaColumns(manager);
+      const repo = manager.getRepository(TenantOrder);
+      const orders = await repo.find({
+        where: { customerUserId, deletedAt: IsNull() },
+        relations: ['orderItems'],
+        order: { createdAt: 'DESC' },
+        take: limit,
+      });
+      return orders.map((o) => this.mapToResponseDto(o));
+    });
+  }
+
+  private async linkCustomerToOrderIfNeeded(
+    manager: EntityManager,
+    order: TenantOrder,
+    actingUser?: OrderActingUser,
+  ): Promise<void> {
+    if (!actingUser || actingUser.role !== 'customer' || order.customerUserId) {
+      return;
+    }
+    order.customerUserId = actingUser.userId;
+    const userRepo = manager.getRepository(TenantUser);
+    const customer = await userRepo.findOne({
+      where: { id: actingUser.userId, isActive: true },
+    });
+    if (!customer) return;
+    if (!order.customerName?.trim()) {
+      const fullName = [customer.firstName, customer.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      order.customerName = fullName || customer.username;
+    }
+    if (!order.customerPhone) {
+      order.customerPhone = customer.phone ?? null;
+    }
+  }
+
   private mapToResponseDto(order: TenantOrder): OrderResponseDto {
     const items = (order.orderItems || []).map((item: TenantOrderItem) => ({
       id: item.id,
@@ -878,6 +971,7 @@ export class OrdersService {
       voucherDiscount: Number(order.voucherDiscount ?? 0),
       voucherCode: order.voucherCode ?? undefined,
       voucherName: undefined,
+      customerUserId: order.customerUserId ?? undefined,
       customerName: order.customerName ?? undefined,
       customerPhone: order.customerPhone ?? undefined,
       customerAddress: order.customerAddress ?? undefined,

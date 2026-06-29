@@ -431,6 +431,11 @@ export class OrderResponseDto {
     voucherName?: string;
 
     @ApiPropertyOptional({
+        description: 'Logged-in customer user id (tenant users)',
+    })
+    customerUserId?: string;
+
+    @ApiPropertyOptional({
         description: 'Payment method',
         example: 'stripe',
     })

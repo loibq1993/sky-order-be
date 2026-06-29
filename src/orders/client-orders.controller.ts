@@ -9,19 +9,29 @@ import {
     UseInterceptors,
     ClassSerializerInterceptor,
     HttpCode,
-    HttpStatus
+    HttpStatus,
+    Request,
+    ForbiddenException,
 } from '@nestjs/common';
 import {
     ApiTags,
     ApiOperation,
     ApiResponse,
     ApiParam,
-    ApiBody
+    ApiBody,
+    ApiBearerAuth,
 } from '@nestjs/swagger';
-import { OrdersService } from './orders.service';
+import { OrdersService, OrderActingUser } from './orders.service';
 import { ApplyVoucherDto, CreateOrderDto, UpdateOrderDto, OrderResponseDto } from './orders.dto';
 import { RestaurantId } from '../auth/decorators/restaurant.decorator';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+
+function toActingUser(req: { user?: { userId?: string; role?: string } }): OrderActingUser | undefined {
+    const user = req.user;
+    if (!user?.userId || user.role !== 'customer') return undefined;
+    return { userId: user.userId, role: user.role };
+}
 
 @ApiTags('orders-client')
 @Controller('client/orders')
@@ -39,8 +49,24 @@ export class ClientOrdersController {
     async createOrder(
         @Body() createOrderDto: CreateOrderDto,
         @RestaurantId() restaurantId: string,
+        @Request() req: { user?: { userId?: string; role?: string } },
     ): Promise<OrderResponseDto> {
-        return this.ordersService.createOrder(createOrderDto, restaurantId);
+        return this.ordersService.createOrder(createOrderDto, restaurantId, toActingUser(req));
+    }
+
+    @Get('me/history')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({ summary: 'Order history for logged-in customer' })
+    @ApiResponse({ status: 200, description: 'Customer order history', type: [OrderResponseDto] })
+    async getMyOrderHistory(
+        @RestaurantId() restaurantId: string,
+        @Request() req: { user: { userId: string; role: string } },
+    ): Promise<OrderResponseDto[]> {
+        if (req.user.role !== 'customer') {
+            throw new ForbiddenException('Chỉ tài khoản khách mới xem lịch sử mua hàng.');
+        }
+        return this.ordersService.getCustomerOrderHistory(req.user.userId, restaurantId);
     }
 
     @Get('number/:orderNumber')
@@ -100,8 +126,9 @@ export class ClientOrdersController {
         @Param('id') id: string,
         @Body() updateOrderDto: UpdateOrderDto,
         @RestaurantId() restaurantId: string,
+        @Request() req: { user?: { userId?: string; role?: string } },
     ): Promise<OrderResponseDto> {
-        return this.ordersService.updateOrder(id, updateOrderDto, restaurantId);
+        return this.ordersService.updateOrder(id, updateOrderDto, restaurantId, toActingUser(req));
     }
 
     @Post(':id/apply-voucher')
@@ -113,7 +140,13 @@ export class ClientOrdersController {
         @Param('id') id: string,
         @Body() dto: ApplyVoucherDto,
         @RestaurantId() restaurantId: string,
+        @Request() req: { user?: { userId?: string; role?: string } },
     ): Promise<OrderResponseDto> {
-        return this.ordersService.applyVoucherToOrder(id, dto.voucherCode, restaurantId);
+        return this.ordersService.applyVoucherToOrder(
+            id,
+            dto.voucherCode,
+            restaurantId,
+            toActingUser(req),
+        );
     }
-} 
+}

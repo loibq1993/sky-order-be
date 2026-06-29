@@ -114,6 +114,7 @@ export function getTenantSchemaSql(schemaName: string): string[] {
       "voucherId" uuid,
       "voucherCode" character varying(50),
       "voucherDiscount" numeric(10,2) NOT NULL DEFAULT 0,
+      "customerUserId" uuid,
       "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
       "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
       "deletedAt" TIMESTAMP,

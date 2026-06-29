@@ -231,6 +231,30 @@ export class VouchersService {
     });
   }
 
+  async findAvailableForClient(restaurantId: string): Promise<VoucherResponseDto[]> {
+    return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
+      await this.ensureVouchersTable(manager);
+      const repo = manager.getRepository(TenantVoucher);
+      const vouchers = await repo.find({
+        where: { deletedAt: IsNull(), isActive: true },
+        order: { validUntil: 'ASC', createdAt: 'DESC' },
+      });
+      const now = new Date();
+      const available = vouchers.filter((voucher) => {
+        if (voucher.validFrom && now < new Date(voucher.validFrom)) return false;
+        if (voucher.validUntil && now > new Date(voucher.validUntil)) return false;
+        if (
+          voucher.totalUsageLimit != null &&
+          voucher.usedCount >= voucher.totalUsageLimit
+        ) {
+          return false;
+        }
+        return true;
+      });
+      return Promise.all(available.map((v) => this.mapToResponse(manager, v)));
+    });
+  }
+
   async findOne(id: string, restaurantId: string): Promise<VoucherResponseDto> {
     return this.tenantSchemaService.runInTenant(restaurantId, async (manager) => {
       await this.ensureVouchersTable(manager);

@@ -92,6 +92,9 @@ export class TenantOrder {
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   voucherDiscount: number;
 
+  @Column({ type: 'uuid', nullable: true })
+  customerUserId: string | null;
+
   @CreateDateColumn({ type: 'timestamp' })
   createdAt: Date;
 
